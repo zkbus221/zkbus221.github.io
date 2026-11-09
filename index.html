@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>London bus arrivals</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
   * { -webkit-box-sizing: border-box; box-sizing: border-box; }
   body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: #f2f2f2; color: #1c1c1c; }
@@ -13,6 +14,8 @@
   .search { background: #fff; padding: 10px; border-radius: 6px; overflow: hidden; }
   .search input { float: left; width: 72%; font-size: 16px; padding: 10px; border: 1px solid #bbb; border-radius: 4px; }
   .search button { float: right; width: 25%; font-size: 16px; padding: 10px 0; border: 0; border-radius: 4px; background: #1c1c1c; color: #fff; }
+  .search button.near { clear: both; float: none; display: block; width: 100%; margin-top: 8px; font-size: 15px; padding: 10px 0; background: #fff; color: #1c1c1c; border: 1px solid #1c1c1c; }
+  #map { height: 280px; margin-top: 10px; border-radius: 6px; background: #ddd; }
   .msg { padding: 12px 4px; color: #555; font-size: 15px; }
   .msg.error { color: #b00020; }
   ul { list-style: none; margin: 10px 0 0; padding: 0; background: #fff; border-radius: 6px; }
@@ -34,23 +37,34 @@
   <div class="search">
     <input id="q" type="text" placeholder="Stop name, e.g. Victoria Station" autocapitalize="off" autocorrect="off">
     <button id="go" type="button">Search</button>
+    <button id="near" class="near" type="button">Stops near me</button>
   </div>
-  <div id="status" class="msg">Type a stop name and tap Search.</div>
+  <div id="map"></div>
+  <div id="status" class="msg">Search for a stop, or tap "Stops near me".</div>
   <ul id="matches" style="display:none"></ul>
   <h2 id="stopTitle" style="display:none"></h2>
   <ul id="arrivals" style="display:none"></ul>
   <div id="updated" class="updated"></div>
 </main>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 /* Old-Safari friendly: ES5 only (var, function, XMLHttpRequest). */
 
-var API_BASE = 'https://busproxy.zkbus221.workers.dev';
-var APP_KEY = '';          // optional for now; later move it behind a proxy
+/* ===== Settings you can change ===== */
+var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- put your Worker address here
+var APP_KEY = '';          // leave empty: the Worker adds your key
 var REFRESH_MS = 20000;    // how often arrivals refresh
+var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+var NEARBY_RADIUS = 400;   // metres
+/* =================================== */
 
 var currentStop = null;
 var timer = null;
+var map = null;
+var nearbyLayer = null;
+var selectedMarker = null;
+var youMarker = null;
 
 function $(id) { return document.getElementById(id); }
 
@@ -65,7 +79,7 @@ function getJSON(path, onOk, onFail) {
       try { onOk(JSON.parse(xhr.responseText)); }
       catch (e) { onFail('Could not read the response from TfL.'); }
     } else if (xhr.status === 429) {
-      onFail('Too many requests. Wait a minute or add an API key.');
+      onFail('Too many requests. Wait a minute and try again.');
     } else {
       onFail('Could not reach TfL (status ' + xhr.status + ').');
     }
@@ -83,45 +97,149 @@ function clearList(el) {
   while (el.firstChild) { el.removeChild(el.firstChild); }
 }
 
+/* ---------- Map ---------- */
+
+function initMap() {
+  if (typeof L === 'undefined') {       // Leaflet failed to load
+    $('map').style.display = 'none';
+    return;
+  }
+  map = L.map('map').setView([51.5074, -0.1278], 12);
+  L.tileLayer(TILE_URL, {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  nearbyLayer = L.layerGroup().addTo(map);
+}
+
+function stopLabel(s) {
+  return s.commonName + (s.indicator ? ' (' + s.indicator + ')' : '');
+}
+
+function moveSelectedMarker(lat, lon) {
+  if (!map || lat === undefined || lon === undefined) { return; }
+  if (selectedMarker) { map.removeLayer(selectedMarker); }
+  selectedMarker = L.circleMarker([lat, lon], {
+    radius: 12, color: '#fff', weight: 3, fillColor: '#dc241f', fillOpacity: 1
+  }).addTo(map);
+}
+
+function loadNearby(lat, lon, fillList) {
+  getJSON('/StopPoint?lat=' + lat + '&lon=' + lon +
+          '&stopTypes=NaptanPublicBusCoachTfl&radius=' + NEARBY_RADIUS,
+    function (data) {
+      var stops = data.stopPoints || [];
+      var items = [];
+      if (nearbyLayer) { nearbyLayer.clearLayers(); }
+      for (var i = 0; i < stops.length; i++) {
+        (function (s) {
+          var item = { id: s.naptanId, name: stopLabel(s), lat: s.lat, lon: s.lon, distance: s.distance || 0 };
+          items.push(item);
+          if (nearbyLayer) {
+            var dot = L.circleMarker([s.lat, s.lon], {
+              radius: 9, color: '#fff', weight: 2, fillColor: '#1c1c1c', fillOpacity: 1
+            });
+            dot.on('click', function () { chooseStop(item, true); });
+            dot.addTo(nearbyLayer);
+          }
+        })(stops[i]);
+      }
+      if (fillList) {
+        items.sort(function (a, b) { return a.distance - b.distance; });
+        if (!items.length) { setStatus('No bus stops within ' + NEARBY_RADIUS + ' m.', true); return; }
+        showPickList(items.slice(0, 12));
+        setStatus('Tap a stop on the map or in the list.');
+      }
+    },
+    function (msg) { if (fillList) { setStatus(msg, true); } });
+}
+
+/* ---------- Picking a stop ---------- */
+
+function showPickList(items) {
+  var list = $('matches');
+  clearList(list);
+  for (var i = 0; i < items.length; i++) {
+    (function (item) {
+      var li = document.createElement('li');
+      li.className = 'pick';
+      li.textContent = item.name;
+      li.onclick = function () { chooseStop(item, false); };
+      list.appendChild(li);
+    })(items[i]);
+  }
+  list.style.display = 'block';
+}
+
 function search() {
   var q = $('q').value.replace(/^\s+|\s+$/g, '');
   if (!q) { setStatus('Enter a stop name first.', true); return; }
   stopRefresh();
+  currentStop = null;
   $('stopTitle').style.display = 'none';
   $('arrivals').style.display = 'none';
   $('updated').textContent = '';
   setStatus('Searching...');
   getJSON('/StopPoint/Search?query=' + encodeURIComponent(q) + '&modes=bus',
     function (data) {
-      var list = $('matches');
-      clearList(list);
       var m = data.matches || [];
       if (!m.length) {
-        list.style.display = 'none';
+        $('matches').style.display = 'none';
         setStatus('No bus stops found for "' + q + '".', true);
         return;
       }
-      setStatus('Tap a stop:');
+      var items = [];
       for (var i = 0; i < m.length; i++) {
-        (function (stop) {
-          var li = document.createElement('li');
-          li.className = 'pick';
-          li.textContent = stop.name;
-          li.onclick = function () { chooseStop(stop); };
-          list.appendChild(li);
-        })(m[i]);
+        items.push({ id: m[i].id, name: m[i].name, lat: m[i].lat, lon: m[i].lon });
       }
-      list.style.display = 'block';
+      setStatus('Tap a stop:');
+      showPickList(items);
     },
     function (msg) { setStatus(msg, true); });
 }
 
-function chooseStop(stop) {
+function nearMe() {
+  if (!navigator.geolocation) { setStatus('This device cannot share its location.', true); return; }
+  stopRefresh();
+  currentStop = null;
+  $('stopTitle').style.display = 'none';
+  $('arrivals').style.display = 'none';
+  $('updated').textContent = '';
+  setStatus('Finding your location...');
+  navigator.geolocation.getCurrentPosition(
+    function (pos) {
+      var lat = pos.coords.latitude, lon = pos.coords.longitude;
+      if (map) {
+        map.setView([lat, lon], 16);
+        if (youMarker) { map.removeLayer(youMarker); }
+        youMarker = L.circleMarker([lat, lon], {
+          radius: 7, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1
+        }).addTo(map);
+        if (selectedMarker) { map.removeLayer(selectedMarker); selectedMarker = null; }
+      }
+      setStatus('Loading nearby stops...');
+      loadNearby(lat, lon, true);
+    },
+    function () { setStatus('Could not get your location. Check that location access is allowed for this site.', true); },
+    { timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+function chooseStop(stop, fromMap) {
   currentStop = stop;
   $('matches').style.display = 'none';
   $('stopTitle').textContent = stop.name;
   $('stopTitle').style.display = 'block';
   setStatus('Loading arrivals...');
+  moveSelectedMarker(stop.lat, stop.lon);
+  if (map && stop.lat !== undefined) {
+    if (fromMap) {
+      map.panTo([stop.lat, stop.lon]);
+    } else {
+      map.setView([stop.lat, stop.lon], 16);
+      loadNearby(stop.lat, stop.lon, false);
+    }
+  }
   loadArrivals();
   stopRefresh();
   timer = setInterval(loadArrivals, REFRESH_MS);
@@ -130,6 +248,8 @@ function chooseStop(stop) {
 function stopRefresh() {
   if (timer) { clearInterval(timer); timer = null; }
 }
+
+/* ---------- Arrivals ---------- */
 
 function loadArrivals() {
   if (!currentStop) { return; }
@@ -192,7 +312,11 @@ function render(data) {
   $('updated').textContent = 'Updated ' + hh + ':' + mm + ':' + ss + ', refreshes every ' + (REFRESH_MS / 1000) + 's';
 }
 
+/* ---------- Start ---------- */
+
+initMap();
 $('go').onclick = search;
+$('near').onclick = nearMe;
 $('q').onkeydown = function (e) {
   e = e || window.event;
   if (e.keyCode === 13) { search(); }
