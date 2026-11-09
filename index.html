@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>London bus arrivals</title>
+<style>
+  * { -webkit-box-sizing: border-box; box-sizing: border-box; }
+  body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: #f2f2f2; color: #1c1c1c; }
+  header { background: #dc241f; color: #fff; padding: 14px 16px; }
+  header h1 { margin: 0; font-size: 20px; font-weight: bold; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px; }
+  .search { background: #fff; padding: 10px; border-radius: 6px; overflow: hidden; }
+  .search input { float: left; width: 72%; font-size: 16px; padding: 10px; border: 1px solid #bbb; border-radius: 4px; }
+  .search button { float: right; width: 25%; font-size: 16px; padding: 10px 0; border: 0; border-radius: 4px; background: #1c1c1c; color: #fff; }
+  .msg { padding: 12px 4px; color: #555; font-size: 15px; }
+  .msg.error { color: #b00020; }
+  ul { list-style: none; margin: 10px 0 0; padding: 0; background: #fff; border-radius: 6px; }
+  li { border-bottom: 1px solid #e4e4e4; }
+  li:last-child { border-bottom: 0; }
+  li.pick { padding: 14px; font-size: 16px; }
+  li.arr { padding: 12px 14px; overflow: hidden; }
+  .badge { float: left; min-width: 48px; margin-right: 12px; padding: 6px 8px; background: #dc241f; color: #fff; font-weight: bold; font-size: 18px; text-align: center; border-radius: 4px; }
+  .mins { float: right; font-size: 20px; font-weight: bold; margin-left: 8px; }
+  .dest { overflow: hidden; font-size: 16px; font-weight: bold; }
+  .sub { font-size: 13px; color: #666; margin-top: 2px; }
+  h2 { font-size: 18px; margin: 16px 0 0; }
+  .updated { font-size: 12px; color: #777; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header><h1>London bus arrivals</h1></header>
+<main>
+  <div class="search">
+    <input id="q" type="text" placeholder="Stop name, e.g. Victoria Station" autocapitalize="off" autocorrect="off">
+    <button id="go" type="button">Search</button>
+  </div>
+  <div id="status" class="msg">Type a stop name and tap Search.</div>
+  <ul id="matches" style="display:none"></ul>
+  <h2 id="stopTitle" style="display:none"></h2>
+  <ul id="arrivals" style="display:none"></ul>
+  <div id="updated" class="updated"></div>
+</main>
+
+<script>
+/* Old-Safari friendly: ES5 only (var, function, XMLHttpRequest). */
+
+var API_BASE = 'https://api.tfl.gov.uk';
+var APP_KEY = '';          // optional for now; later move it behind a proxy
+var REFRESH_MS = 20000;    // how often arrivals refresh
+
+var currentStop = null;
+var timer = null;
+
+function $(id) { return document.getElementById(id); }
+
+function getJSON(path, onOk, onFail) {
+  var sep = path.indexOf('?') === -1 ? '?' : '&';
+  var url = API_BASE + path + (APP_KEY ? sep + 'app_key=' + encodeURIComponent(APP_KEY) : '');
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', url, true);
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState !== 4) { return; }
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try { onOk(JSON.parse(xhr.responseText)); }
+      catch (e) { onFail('Could not read the response from TfL.'); }
+    } else if (xhr.status === 429) {
+      onFail('Too many requests. Wait a minute or add an API key.');
+    } else {
+      onFail('Could not reach TfL (status ' + xhr.status + ').');
+    }
+  };
+  xhr.send();
+}
+
+function setStatus(text, isError) {
+  var el = $('status');
+  el.textContent = text;
+  el.className = isError ? 'msg error' : 'msg';
+}
+
+function clearList(el) {
+  while (el.firstChild) { el.removeChild(el.firstChild); }
+}
+
+function search() {
+  var q = $('q').value.replace(/^\s+|\s+$/g, '');
+  if (!q) { setStatus('Enter a stop name first.', true); return; }
+  stopRefresh();
+  $('stopTitle').style.display = 'none';
+  $('arrivals').style.display = 'none';
+  $('updated').textContent = '';
+  setStatus('Searching...');
+  getJSON('/StopPoint/Search?query=' + encodeURIComponent(q) + '&modes=bus',
+    function (data) {
+      var list = $('matches');
+      clearList(list);
+      var m = data.matches || [];
+      if (!m.length) {
+        list.style.display = 'none';
+        setStatus('No bus stops found for "' + q + '".', true);
+        return;
+      }
+      setStatus('Tap a stop:');
+      for (var i = 0; i < m.length; i++) {
+        (function (stop) {
+          var li = document.createElement('li');
+          li.className = 'pick';
+          li.textContent = stop.name;
+          li.onclick = function () { chooseStop(stop); };
+          list.appendChild(li);
+        })(m[i]);
+      }
+      list.style.display = 'block';
+    },
+    function (msg) { setStatus(msg, true); });
+}
+
+function chooseStop(stop) {
+  currentStop = stop;
+  $('matches').style.display = 'none';
+  $('stopTitle').textContent = stop.name;
+  $('stopTitle').style.display = 'block';
+  setStatus('Loading arrivals...');
+  loadArrivals();
+  stopRefresh();
+  timer = setInterval(loadArrivals, REFRESH_MS);
+}
+
+function stopRefresh() {
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+function loadArrivals() {
+  if (!currentStop) { return; }
+  var stopAtRequest = currentStop;
+  getJSON('/StopPoint/' + encodeURIComponent(stopAtRequest.id) + '/Arrivals',
+    function (data) {
+      if (stopAtRequest !== currentStop) { return; } // user picked another stop
+      render(data);
+    },
+    function (msg) { setStatus(msg, true); });
+}
+
+function render(data) {
+  var list = $('arrivals');
+  clearList(list);
+  data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+  if (!data.length) {
+    list.style.display = 'none';
+    setStatus('No buses due at this stop right now.');
+    return;
+  }
+  setStatus('');
+  for (var i = 0; i < data.length; i++) {
+    var a = data[i];
+    var mins = Math.floor(a.timeToStation / 60);
+
+    var li = document.createElement('li');
+    li.className = 'arr';
+
+    var badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = a.lineName;
+
+    var t = document.createElement('div');
+    t.className = 'mins';
+    t.textContent = mins < 1 ? 'Due' : mins + ' min';
+
+    var dest = document.createElement('div');
+    dest.className = 'dest';
+    dest.textContent = a.destinationName || a.towards || '';
+
+    var sub = document.createElement('div');
+    sub.className = 'sub';
+    var bits = [];
+    if (a.platformName && a.platformName !== 'null') { bits.push('Stop ' + a.platformName); }
+    if (a.towards) { bits.push('towards ' + a.towards); }
+    sub.textContent = bits.join(', ');
+
+    li.appendChild(badge);
+    li.appendChild(t);
+    li.appendChild(dest);
+    li.appendChild(sub);
+    list.appendChild(li);
+  }
+  list.style.display = 'block';
+  var now = new Date();
+  var hh = ('0' + now.getHours()).slice(-2);
+  var mm = ('0' + now.getMinutes()).slice(-2);
+  var ss = ('0' + now.getSeconds()).slice(-2);
+  $('updated').textContent = 'Updated ' + hh + ':' + mm + ':' + ss + ', refreshes every ' + (REFRESH_MS / 1000) + 's';
+}
+
+$('go').onclick = search;
+$('q').onkeydown = function (e) {
+  e = e || window.event;
+  if (e.keyCode === 13) { search(); }
+};
+</script>
+</body>
+</html>
