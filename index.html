@@ -24,6 +24,8 @@
            margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); }
   .ctrls button { display: block; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px;
                   background: rgba(250,250,252,.95); color: #0a84ff; box-shadow: 0 1px 8px rgba(0,0,0,.25); }
+  .warn { position: fixed; left: 10px; right: 70px; top: 34px; z-index: 500; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.95); color: #8a1f11; font-size: 13px; line-height: 17px; box-shadow: 0 1px 6px rgba(0,0,0,.25);
+          margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); }
   .area { position: fixed; left: 50%; top: 58px; z-index: 500; padding: 9px 16px; border: 0; border-radius: 18px;
           font-size: 15px; font-weight: 600; background: rgba(250,250,252,.96); color: #0a84ff;
           box-shadow: 0 1px 8px rgba(0,0,0,.25); -webkit-transform: translateX(-50%); transform: translateX(-50%);
@@ -86,6 +88,10 @@
   .vfleet { padding: 1px 6px; border-radius: 4px; background: #1c1c1e; color: #fff; font-size: 12px; font-weight: 700; }
   .plate { padding: 1px 6px; border: 1px solid rgba(0,0,0,.4); border-radius: 3px; background: #f7d117; color: #000; font-size: 12px; font-weight: 700; letter-spacing: .6px; }
 
+  .stitle { margin: 18px 2px 4px; font-size: 17px; font-weight: 700; }
+  .snote { margin: 0 2px 8px; font-size: 13px; color: #6e6e73; }
+  .srow .rt { font-size: 20px; }
+
   /* ----- map pins and the little departure card ----- */
   .stopico { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center;
              border: 2.5px solid #fff; border-radius: 50%; background: #0a84ff; color: #0a84ff; box-shadow: 0 1px 5px rgba(0,0,0,.4); }
@@ -121,12 +127,13 @@
   .dark .note.err { color: #ff6961; }
   .dark .vfleet { background: #e5e5ea; color: #000; }
   .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip { background: #2c2c2e; color: #fff; }
-  .dark .pnote { color: #98989f; }
+  .dark .pnote, .dark .snote { color: #98989f; }
   .dark .pnote.err { color: #ff6961; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="mapWarn" class="warn" style="display:none">The map pictures could not load on this device. Stops, search and times still work.</div>
 
 <div class="ctrls">
   <button id="locate" type="button" aria-label="Show my location">
@@ -159,7 +166,8 @@
 var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
 var REFRESH_MS = 30000;        // arrivals refresh (milliseconds)
 var NEARBY_RADIUS = 400;       // metres
-var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';   // or API_BASE + '/tile/{z}/{x}/{y}.png' to go through your Worker
+var MAX_DOTS = 40;             // most stop pins drawn on the map
 var START_VIEW = [51.5074, -0.1278];   // used if location is unavailable (central London)
 var TOP_GAP = 56;              // map left visible above the sheet when fully open (px)
 var PEEK = 88;                 // sheet height when collapsed (px)
@@ -368,7 +376,11 @@ sheet.addEventListener('mousedown', function (e) {
 function initMap() {
   if (typeof L === 'undefined') { setMsgOnly('The map could not load, but search still works.'); return; }
   map = L.map('map', { zoomControl: false, attributionControl: false }).setView(START_VIEW, 16);
-  L.tileLayer(TILE_URL, { maxZoom: 19 }).addTo(map);
+  var tiles = L.tileLayer(TILE_URL, { maxZoom: 19 }).addTo(map);
+  var tileOk = 0, tileBad = 0;
+  tiles.on('tileload', function () { tileOk++; });
+  tiles.on('tileerror', function () { tileBad++; });
+  setTimeout(function () { if (!tileOk && tileBad) { $('mapWarn').style.display = 'block'; } }, 7000);   // tell the person if no map pictures arrive
   attrib = L.control.attribution({ prefix: false, position: isLand ? 'bottomright' : 'topleft' });
   attrib.addAttribution('&copy; OpenStreetMap contributors');
   attrib.addTo(map);
@@ -410,33 +422,45 @@ function drawDots(items) {
   if (!nearbyLayer) { return; }
   stopIcons();
   nearbyLayer.clearLayers();
-  for (var i = 0; i < items.length; i++) {
+  for (var i = 0; i < items.length && i < MAX_DOTS; i++) {
     (function (item) {
       if (item.lat === undefined) { return; }
       var m = L.marker([item.lat, item.lon], { icon: STOP_ICON, keyboard: false });
-      m.bindPopup(function () { return buildPopup(item, m); },
-                  { autoPan: false, closeButton: false, minWidth: 220, maxWidth: 280, offset: [0, -10] });
-      m.on('popupopen', function (e) { m.setIcon(STOP_ICON_SEL); placePopup(e.popup); });
+      var box = makePopupBox(item);
+      m.bindPopup(box.el, { autoPan: false, closeButton: false, minWidth: 220, maxWidth: 280, offset: [0, -16] });
+      m.on('popupopen', function (e) { m.setIcon(STOP_ICON_SEL); fillPopup(box, item, m); placePopup(e.popup); });
       m.on('popupclose', function () { m.setIcon(STOP_ICON); });
       m.addTo(nearbyLayer);
     })(items[i]);
   }
 }
 
-// The small card that appears when you tap a stop on the map: next three buses
-function buildPopup(item, m) {
-  var box = el('div', 'pop');
-  box.appendChild(el('div', 'pname', item.label));
-  var body = el('div', 'pnote', 'Loading departures\u2026');
-  box.appendChild(body);
+// The small card that appears when you tap a stop on the map: the next three buses
+function makePopupBox(item) {
+  var box = { el: el('div', 'pop'), body: null, seq: 0 };
+  box.el.appendChild(el('div', 'pname', item.label));
+  box.body = el('div', 'pnote', 'Loading departures\u2026');
+  box.el.appendChild(box.body);
   var btn = el('button', 'plink', 'All departures'); btn.type = 'button';
   btn.onclick = function () { if (map) { map.closePopup(); } openStop(item, true); };
-  box.appendChild(btn);
+  box.el.appendChild(btn);
+  return box;
+}
+
+function setPopupBody(box, node) {
+  box.el.replaceChild(node, box.body);
+  box.body = node;
+}
+
+function fillPopup(box, item, m) {
+  var my = ++box.seq;
+  setPopupBody(box, el('div', 'pnote', 'Loading departures\u2026'));
   getJSON('/StopPoint/' + encodeURIComponent(item.id) + '/Arrivals',
     function (data) {
+      if (my !== box.seq) { return; }
       data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
       var n = Math.min(data.length, 3), i;
-      if (!n) { body.textContent = 'No buses due right now.'; }
+      if (!n) { setPopupBody(box, el('div', 'pnote', 'No buses due right now.')); }
       else {
         var list = el('div', 'plist');
         for (i = 0; i < n; i++) {
@@ -447,12 +471,15 @@ function buildPopup(item, m) {
           row.appendChild(el('span', 'pmin', mins < 1 ? 'Due' : mins + ' min'));
           list.appendChild(row);
         }
-        box.replaceChild(list, body);
+        setPopupBody(box, list);
       }
       refreshPopup(m);
     },
-    function (msg) { body.textContent = msg; body.className = 'pnote err'; refreshPopup(m); });
-  return box;
+    function (msg) {
+      if (my !== box.seq) { return; }
+      setPopupBody(box, el('div', 'pnote err', msg));
+      refreshPopup(m);
+    });
 }
 
 function refreshPopup(m) {
@@ -462,7 +489,7 @@ function refreshPopup(m) {
 
 // Nudge the map so the card is not hidden behind the sheet or the screen edge
 function placePopup(pp) {
-  var node = pp && pp.getElement ? pp.getElement() : null;
+  var node = pp ? (pp.getElement ? pp.getElement() : pp._container) : null;
   if (!map || !node) { return; }
   if (state === 0) { setState(1, true); }
   var pt = map.latLngToContainerPoint(pp.getLatLng());
@@ -488,7 +515,7 @@ function setSelected(lat, lon) {
   removeSelected();
   if (!map || lat === undefined) { return; }
   stopIcons();
-  selectedMarker = L.marker([lat, lon], { icon: STOP_ICON_SEL, zIndexOffset: 1000, interactive: false, keyboard: false }).addTo(map);
+  selectedMarker = L.marker([lat, lon], { icon: STOP_ICON_SEL, zIndexOffset: 1000, interactive: false, clickable: false, keyboard: false }).addTo(map);
 }
 function removeSelected() {
   if (selectedMarker && map) { map.removeLayer(selectedMarker); }
@@ -753,6 +780,167 @@ function pumpVeh() {
   }
 }
 
+/* ---------- timetable (shown when no buses are due) ---------- */
+
+var DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+var schedEl = null;
+
+function clearNode(e) { while (e.firstChild) { e.removeChild(e.firstChild); } }
+function fmtTime(min) { return two(Math.floor(min / 60) % 24) + ':' + two(min % 60); }
+function hmMin(o) { return parseInt(o.hour, 10) * 60 + parseInt(o.minute, 10); }
+
+// Does a schedule called e.g. "Monday - Friday" or "Saturday" run on weekday number dow (0 = Sunday)?
+function scheduleRunsOn(name, dow) {
+  var n = String(name || '').toLowerCase(), found = [], i, at, k, d;
+  if (n.indexOf('holiday') !== -1) { return false; }
+  for (i = 0; i < 7; i++) {
+    at = n.indexOf(DAY_NAMES[i]);
+    if (at === -1) { at = n.indexOf(DAY_NAMES[i].slice(0, 3)); }
+    if (at !== -1) { found.push({ d: i, at: at }); }
+  }
+  if (!found.length) { return /daily|every day|all days|7 days/.test(n); }
+  found.sort(function (a, b) { return a.at - b.at; });
+  if (found.length === 2 && /-|\bto\b|\u2013/.test(n.slice(found[0].at, found[1].at))) {   // a range, such as Monday - Friday
+    d = found[0].d;
+    for (k = 0; k < 7; k++) {
+      if (d === dow) { return true; }
+      if (d === found[1].d) { break; }
+      d = (d + 1) % 7;
+    }
+    return false;
+  }
+  for (i = 0; i < found.length; i++) { if (found[i].d === dow) { return true; } }
+  return false;
+}
+
+// Work out the next scheduled times from the saved timetables
+function buildSchedule(tts) {
+  var now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), dow = now.getDay();
+  var times = [], freqAll = [], seen = {}, withTimes = {}, t, r, s, o, j, p;
+  for (t = 0; t < tts.length; t++) {
+    var tt = tts[t].tt, line = tts[t].line;
+    var routes = (tt && tt.timetable && tt.timetable.routes) || [];
+    for (r = 0; r < routes.length; r++) {
+      var scheds = routes[r].schedules || [];
+      for (s = 0; s < scheds.length; s++) {
+        var sc = scheds[s];
+        for (o = -1; o <= 1; o++) {                       // yesterday, today, tomorrow
+          if (!scheduleRunsOn(sc.name, (dow + o + 7) % 7)) { continue; }
+          var jn = sc.knownJourneys || [];
+          for (j = 0; j < jn.length; j++) {
+            var m = hmMin(jn[j]), abs = o * 1440 + m, key = line + '|' + abs;
+            if (isNaN(m) || abs <= nowMin || seen[key]) { continue; }
+            seen[key] = true; withTimes[line] = true;
+            times.push({ abs: abs, line: line });
+          }
+          if (o === 0) {                                   // services that run "every X minutes"
+            var ps = sc.periods || [];
+            for (p = 0; p < ps.length; p++) {
+              if (!ps[p].frequency || !ps[p].fromTime || !ps[p].toTime) { continue; }
+              var from = hmMin(ps[p].fromTime), to = hmMin(ps[p].toTime);
+              if (to < from) { to += 1440; }
+              if (!isNaN(from) && !isNaN(to) && to > nowMin) {
+                freqAll.push({ line: line, from: from, to: to, lo: ps[p].frequency.lowestFrequency, hi: ps[p].frequency.highestFrequency });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  times.sort(function (a, b) { return a.abs - b.abs; });
+  freqAll.sort(function (a, b) { return a.from - b.from; });
+  var freqs = [], done = {};
+  for (j = 0; j < freqAll.length; j++) {
+    if (!done[freqAll[j].line] && !withTimes[freqAll[j].line]) { done[freqAll[j].line] = true; freqs.push(freqAll[j]); }
+  }
+  return { times: times.slice(0, 10), freqs: freqs };
+}
+
+function showSchedule(item) {
+  if (currentStop !== item || !schedEl) { return; }
+  var res = buildSchedule(item.ttRaw), i, li, body, ul;
+  clearNode(schedEl);
+  schedEl.style.display = 'block';
+  schedEl.appendChild(el('div', 'stitle', 'Scheduled departures'));
+  if (!res.times.length && !res.freqs.length) {
+    schedEl.appendChild(el('div', 'note', 'No more scheduled departures found for this stop today.'));
+    return;
+  }
+  schedEl.appendChild(el('div', 'snote', 'From the timetable, not live tracking.'));
+  if (res.times.length) {
+    ul = el('ul', 'card');
+    for (i = 0; i < res.times.length; i++) {
+      li = el('li', 'row arr srow');
+      li.appendChild(el('div', 'badge', res.times[i].line));
+      body = el('div', 'rbody');
+      body.appendChild(el('div', 'rt', fmtTime(res.times[i].abs % 1440)));
+      if (res.times[i].abs >= 1440) { body.appendChild(el('div', 'rs', 'Tomorrow')); }
+      li.appendChild(body);
+      ul.appendChild(li);
+    }
+    schedEl.appendChild(ul);
+  }
+  if (res.freqs.length) {
+    ul = el('ul', 'card'); ul.style.marginTop = '10px';
+    for (i = 0; i < res.freqs.length; i++) {
+      var f = res.freqs[i];
+      li = el('li', 'row arr');
+      li.appendChild(el('div', 'badge', f.line));
+      body = el('div', 'rbody');
+      body.appendChild(el('div', 'rt', 'Every ' + ((f.lo === f.hi || f.hi === undefined) ? f.lo : f.lo + '\u2013' + f.hi) + ' min'));
+      body.appendChild(el('div', 'rs', fmtTime(f.from) + ' to ' + fmtTime(f.to)));
+      li.appendChild(body);
+      ul.appendChild(li);
+    }
+    schedEl.appendChild(ul);
+  }
+}
+
+function ensureLines(item, cb) {
+  if (item.lines && item.lines.length) { cb(); return; }
+  getJSON('/StopPoint/' + encodeURIComponent(item.id),
+    function (res) {
+      var sp = toArray(res)[0];
+      if (sp && sp.commonName) { item.lines = normalize(sp).lines; }
+      cb();
+    },
+    function () { cb(); });
+}
+
+function scheduleNote(text) {
+  clearNode(schedEl);
+  schedEl.style.display = 'block';
+  schedEl.appendChild(el('div', 'stitle', 'Scheduled departures'));
+  schedEl.appendChild(el('div', 'note', text));
+}
+
+function loadSchedule(item) {
+  if (!schedEl) { return; }
+  if (item.ttRaw) { showSchedule(item); return; }
+  if (item.schedBusy) { return; }
+  if (item.schedFail && new Date().getTime() - item.schedFail < 600000) { scheduleNote('No timetable is available for this stop.'); return; }
+  item.schedBusy = true;
+  scheduleNote('Looking up the timetable\u2026');
+  ensureLines(item, function () {
+    var names = (item.lines || []).slice(0, 8), pending = names.length, got = [];
+    var finish = function () {
+      item.schedBusy = false;
+      if (got.length) { item.ttRaw = got; } else { item.schedFail = new Date().getTime(); }
+      if (currentStop !== item) { return; }
+      if (got.length) { showSchedule(item); } else { scheduleNote('No timetable is available for this stop.'); }
+    };
+    if (!pending) { finish(); return; }
+    for (var i = 0; i < names.length; i++) {
+      (function (name) {
+        getJSON('/Line/' + encodeURIComponent(name.toLowerCase()) + '/Timetable/' + encodeURIComponent(item.id),
+          function (tt) { got.push({ line: name, tt: tt }); pending--; if (!pending) { finish(); } },
+          function () { pending--; if (!pending) { finish(); } });
+      })(names[i]);
+    }
+  });
+}
+
 /* ---------- stop view ---------- */
 
 var arrListEl = null, updEl = null, titleEl = null, subEl = null;
@@ -780,6 +968,7 @@ function openStop(item, fromMap) {
   arrListEl = el('ul', 'card'); arrListEl.style.display = 'none';
   content.appendChild(el('div', 'note', 'Loading arrivals\u2026')).id = 'arrNote';
   content.appendChild(arrListEl);
+  schedEl = el('div', 'sched'); schedEl.style.display = 'none'; content.appendChild(schedEl);
   updEl = el('div', 'upd'); content.appendChild(updEl);
   endContent();
 
@@ -839,7 +1028,9 @@ function renderArrivals(data) {
   if (!data.length) {
     arrListEl.style.display = 'none';
     if (note) { note.style.display = 'block'; note.textContent = 'No buses due at this stop right now.'; note.className = 'note'; }
+    if (currentStop) { loadSchedule(currentStop); }
   } else {
+    if (schedEl) { schedEl.style.display = 'none'; }
     if (note) { note.style.display = 'none'; }
     var now = new Date().getTime();
     for (var i = 0; i < data.length; i++) {
@@ -876,6 +1067,7 @@ $('locate').onclick = function () {
   $('areaBtn').style.display = 'none';
   locate(false);
 };
+$('mapWarn').onclick = function () { $('mapWarn').style.display = 'none'; };
 $('areaBtn').onclick = function () {
   $('areaBtn').style.display = 'none';
   if (!map) { return; }
