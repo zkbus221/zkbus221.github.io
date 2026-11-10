@@ -59,7 +59,7 @@
   .row { position: relative; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
          min-height: 58px; padding: 10px 14px; }
   .row + .row { border-top: .5px solid rgba(60,60,67,.2); }
-  .sicon { -webkit-flex: none; flex: none; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
+  .sicon { color: #0a84ff; -webkit-flex: none; flex: none; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
            -webkit-justify-content: center; justify-content: center; width: 34px; height: 34px; margin-right: 12px;
            border-radius: 17px; background: #0a84ff; }
   .rbody { -webkit-flex: 1; flex: 1; min-width: 0; }
@@ -82,10 +82,32 @@
 
   .veh { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; -webkit-align-items: center; align-items: center; margin-top: 5px; }
   .veh > span { margin: 0 6px 3px 0; }
-  .vop { font-size: 12px; color: #6e6e73; }
-  .vop:empty, .vfleet:empty { display: none; }
+  .vfleet:empty { display: none; }
   .vfleet { padding: 1px 6px; border-radius: 4px; background: #1c1c1e; color: #fff; font-size: 12px; font-weight: 700; }
   .plate { padding: 1px 6px; border: 1px solid rgba(0,0,0,.4); border-radius: 3px; background: #f7d117; color: #000; font-size: 12px; font-weight: 700; letter-spacing: .6px; }
+
+  /* ----- map pins and the little departure card ----- */
+  .stopico { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center;
+             border: 2.5px solid #fff; border-radius: 50%; background: #0a84ff; color: #0a84ff; box-shadow: 0 1px 5px rgba(0,0,0,.4); }
+  .stopico.sel { background: #ff3b30; color: #ff3b30; }
+  .stopico svg { display: block; }
+  .leaflet-popup-content-wrapper { padding: 0; border-radius: 14px; box-shadow: 0 3px 18px rgba(0,0,0,.3); }
+  .leaflet-popup-content { margin: 12px 14px; font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; line-height: 1.3; }
+  .pop { min-width: 210px; }
+  .pname { margin-bottom: 6px; font-size: 16px; line-height: 20px; font-weight: 700; }
+  .prow { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; padding: 4px 0; }
+  .pbadge { -webkit-flex: none; flex: none; min-width: 38px; margin-right: 8px; padding: 2px 5px; border-radius: 4px; background: #dc241f; color: #fff; font-size: 14px; font-weight: 700; text-align: center; }
+  .pdest { -webkit-flex: 1; flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pmin { -webkit-flex: none; flex: none; margin-left: 8px; font-size: 14px; font-weight: 700; }
+  .pnote { padding: 4px 0; font-size: 13px; color: #6e6e73; }
+  .pnote.err { color: #d70015; }
+  .plink { display: block; width: 100%; margin-top: 8px; padding: 9px 0; border: 0; border-radius: 9px; background: #0a84ff; color: #fff; font-size: 15px; font-weight: 600; }
+
+  /* ----- landscape: the panel moves to the left ----- */
+  body.land .sheet { left: 12px; left: calc(12px + constant(safe-area-inset-left)); left: calc(12px + env(safe-area-inset-left));
+                     right: auto; width: 370px; max-width: 48%; margin: 0; }
+  body.land .area { left: calc(50% + 185px); }
+  body.typing .ctrls, body.typing .area { display: none; }
 
   /* ----- dark ----- */
   .dark .sheet { background: rgba(30,30,32,.95); color: #fff; }
@@ -97,8 +119,10 @@
   .dark .note, .dark .rs, .dark .rd, .dark .tsub, .dark .upd { color: #98989f; }
   .dark .xbtn { color: #98989f; background: rgba(118,118,128,.32); }
   .dark .note.err { color: #ff6961; }
-  .dark .vop { color: #98989f; }
   .dark .vfleet { background: #e5e5ea; color: #000; }
+  .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip { background: #2c2c2e; color: #fff; }
+  .dark .pnote { color: #98989f; }
+  .dark .pnote.err { color: #ff6961; }
 </style>
 </head>
 <body>
@@ -132,16 +156,17 @@
 /* Old-Safari friendly: ES5 only (var, function, XMLHttpRequest). */
 
 /* ===== Settings you can change ===== */
-var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
+var API_BASE = 'https://busproxy.YOURNAME.workers.dev';   // <-- your Worker address
 var REFRESH_MS = 30000;        // arrivals refresh (milliseconds)
 var NEARBY_RADIUS = 400;       // metres
 var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 var START_VIEW = [51.5074, -0.1278];   // used if location is unavailable (central London)
 var TOP_GAP = 56;              // map left visible above the sheet when fully open (px)
 var PEEK = 88;                 // sheet height when collapsed (px)
+var TOP_GAP_LAND = 12;         // same, when the phone is on its side (px)
 /* =================================== */
 
-var BUS_SVG = '<svg viewBox="0 0 24 24" width="20" height="20"><rect x="4" y="3" width="16" height="15" rx="3" fill="#fff"/><rect x="6" y="5.5" width="12" height="5" rx="1" fill="#0a84ff"/><circle cx="8.5" cy="14.5" r="1.4" fill="#0a84ff"/><circle cx="15.5" cy="14.5" r="1.4" fill="#0a84ff"/><rect x="6" y="18" width="3" height="3" rx="1" fill="#fff"/><rect x="15" y="18" width="3" height="3" rx="1" fill="#fff"/></svg>';
+var BUS_SVG = '<svg viewBox="0 0 24 24" width="20" height="20"><rect x="4" y="3" width="16" height="15" rx="3" fill="#fff"/><rect x="6" y="5.5" width="12" height="5" rx="1" fill="currentColor"/><circle cx="8.5" cy="14.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="14.5" r="1.4" fill="currentColor"/><rect x="6" y="18" width="3" height="3" rx="1" fill="#fff"/><rect x="15" y="18" width="3" height="3" rx="1" fill="#fff"/></svg>';
 
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, text) {
@@ -152,7 +177,8 @@ function el(tag, cls, text) {
 }
 
 var sheet = $('sheet'), head = $('head'), content = $('content'), q = $('q');
-var map = null, nearbyLayer = null, selectedMarker = null, youMarker = null;
+var map = null, nearbyLayer = null, selectedMarker = null, youMarker = null, attrib = null;
+var isLand = false, isDark = false, typing = false, safeBottom = 0, kbHeight = 0;
 var VIEW = 'home';             // 'home' | 'results' | 'stop'
 var backView = 'home';
 var currentStop = null, timer = null;
@@ -249,17 +275,25 @@ function setState(i, anim) {
   if (i !== 0) { content.scrollTop = 0; }
 }
 
+function updateClasses() {
+  document.body.className = (isDark ? 'dark ' : '') + (isLand ? 'land ' : '') + (typing ? 'typing' : '');
+}
+
+function applyContentPad() { content.style.paddingBottom = (kbHeight + safeBottom) + 'px'; }
+
 function layout() {
-  var ih = window.innerHeight;
-  var safeB = $('probe').offsetHeight || 0;
-  SH = ih - TOP_GAP;
+  var ih = window.innerHeight, iw = window.innerWidth;
+  safeBottom = $('probe').offsetHeight || 0;
+  isLand = iw > ih && iw >= 560;           // phone/tablet on its side, or a wide window
+  updateClasses();
+  SH = ih - (isLand ? TOP_GAP_LAND : TOP_GAP);
   sheet.style.height = SH + 'px';
-  var med = Math.max(300, Math.round(ih * 0.46));
-  positions = [0, Math.max(0, SH - med), SH - (PEEK + safeB)];
+  var med = isLand ? Math.max(200, Math.round(ih * 0.55)) : Math.max(300, Math.round(ih * 0.46));
+  positions = [0, Math.max(0, SH - med), SH - (PEEK + safeBottom)];
   content.style.top = head.offsetHeight + 'px';
-  content.style.paddingBottom = safeB + 'px';
+  applyContentPad();
   setState(state, false);
-  if (map) { map.invalidateSize(); }
+  if (map) { map.invalidateSize(); setAttribution(); }
 }
 
 function tapOK() { return !(dragMoved && Date.now() - lastDragEnd < 400); }
@@ -335,44 +369,126 @@ function initMap() {
   if (typeof L === 'undefined') { setMsgOnly('The map could not load, but search still works.'); return; }
   map = L.map('map', { zoomControl: false, attributionControl: false }).setView(START_VIEW, 16);
   L.tileLayer(TILE_URL, { maxZoom: 19 }).addTo(map);
-  L.control.attribution({ prefix: false, position: 'topleft' }).addAttribution('&copy; OpenStreetMap contributors').addTo(map);
+  attrib = L.control.attribution({ prefix: false, position: isLand ? 'bottomright' : 'topleft' });
+  attrib.addAttribution('&copy; OpenStreetMap contributors');
+  attrib.addTo(map);
   nearbyLayer = L.layerGroup().addTo(map);
   map.on('dragend', function () { if (VIEW === 'home') { $('areaBtn').style.display = 'block'; } });
 }
 
+function setAttribution() { if (attrib) { attrib.setPosition(isLand ? 'bottomright' : 'topleft'); } }
+
+function panelRight() { return sheet.getBoundingClientRect().right; }
+
+// Put a place in the middle of the part of the map you can actually see
 function centerAbove(lat, lon, zoom, idx) {
   if (!map) { return; }
-  var visible = SH - positions[idx];
   var p = map.project([lat, lon], zoom);
-  p.y += visible / 2;
+  if (isLand) { p.x -= panelRight() / 2; }
+  else { p.y += (SH - positions[idx]) / 2; }
   map.setView(map.unproject(p, zoom), zoom);
 }
 
 function visibleCenter() {
   var z = map.getZoom();
   var p = map.project(map.getCenter(), z);
-  p.y -= (SH - positions[state]) / 2;
+  if (isLand) { p.x += panelRight() / 2; }
+  else { p.y -= (SH - positions[state]) / 2; }
   return map.unproject(p, z);
+}
+
+var STOP_ICON = null, STOP_ICON_SEL = null;
+
+function stopIcons() {
+  if (!STOP_ICON && typeof L !== 'undefined') {
+    STOP_ICON = L.divIcon({ className: 'stopico', html: BUS_SVG, iconSize: [30, 30], iconAnchor: [15, 15] });
+    STOP_ICON_SEL = L.divIcon({ className: 'stopico sel', html: BUS_SVG, iconSize: [30, 30], iconAnchor: [15, 15] });
+  }
 }
 
 function drawDots(items) {
   if (!nearbyLayer) { return; }
+  stopIcons();
   nearbyLayer.clearLayers();
   for (var i = 0; i < items.length; i++) {
     (function (item) {
       if (item.lat === undefined) { return; }
-      var dot = L.circleMarker([item.lat, item.lon], { radius: 8, color: '#fff', weight: 2.5, fillColor: '#0a84ff', fillOpacity: 1 });
-      dot.on('click', function () { openStop(item, true); });
-      dot.addTo(nearbyLayer);
+      var m = L.marker([item.lat, item.lon], { icon: STOP_ICON, keyboard: false });
+      m.bindPopup(function () { return buildPopup(item, m); },
+                  { autoPan: false, closeButton: false, minWidth: 220, maxWidth: 280, offset: [0, -10] });
+      m.on('popupopen', function (e) { m.setIcon(STOP_ICON_SEL); placePopup(e.popup); });
+      m.on('popupclose', function () { m.setIcon(STOP_ICON); });
+      m.addTo(nearbyLayer);
     })(items[i]);
   }
-  if (selectedMarker) { selectedMarker.bringToFront(); }
+}
+
+// The small card that appears when you tap a stop on the map: next three buses
+function buildPopup(item, m) {
+  var box = el('div', 'pop');
+  box.appendChild(el('div', 'pname', item.label));
+  var body = el('div', 'pnote', 'Loading departures\u2026');
+  box.appendChild(body);
+  var btn = el('button', 'plink', 'All departures'); btn.type = 'button';
+  btn.onclick = function () { if (map) { map.closePopup(); } openStop(item, true); };
+  box.appendChild(btn);
+  getJSON('/StopPoint/' + encodeURIComponent(item.id) + '/Arrivals',
+    function (data) {
+      data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+      var n = Math.min(data.length, 3), i;
+      if (!n) { body.textContent = 'No buses due right now.'; }
+      else {
+        var list = el('div', 'plist');
+        for (i = 0; i < n; i++) {
+          var mins = Math.floor(data[i].timeToStation / 60);
+          var row = el('div', 'prow');
+          row.appendChild(el('span', 'pbadge', data[i].lineName));
+          row.appendChild(el('span', 'pdest', data[i].destinationName || data[i].towards || ''));
+          row.appendChild(el('span', 'pmin', mins < 1 ? 'Due' : mins + ' min'));
+          list.appendChild(row);
+        }
+        box.replaceChild(list, body);
+      }
+      refreshPopup(m);
+    },
+    function (msg) { body.textContent = msg; body.className = 'pnote err'; refreshPopup(m); });
+  return box;
+}
+
+function refreshPopup(m) {
+  var pp = m.getPopup();
+  if (pp && map && map.hasLayer(pp)) { pp.update(); placePopup(pp); }
+}
+
+// Nudge the map so the card is not hidden behind the sheet or the screen edge
+function placePopup(pp) {
+  var node = pp && pp.getElement ? pp.getElement() : null;
+  if (!map || !node) { return; }
+  if (state === 0) { setState(1, true); }
+  var pt = map.latLngToContainerPoint(pp.getLatLng());
+  var h = node.offsetHeight + 24, w = node.offsetWidth;
+  var ih = window.innerHeight, iw = window.innerWidth, dx = 0, dy = 0;
+  if (isLand) {
+    var left = panelRight() + 10;
+    if (pt.x - w / 2 < left) { dx = pt.x - w / 2 - left; }
+    if (pt.x + w / 2 > iw - 10) { dx = pt.x + w / 2 - (iw - 10); }
+    if (pt.y - h < 10) { dy = pt.y - h - 10; }
+    if (pt.y > ih - 40) { dy = pt.y - (ih - 40); }
+  } else {
+    var bottom = ih - (SH - positions[state]) - 20;     // top edge of the sheet
+    if (pt.y - h < 50) { dy = pt.y - h - 50; }
+    if (pt.y > bottom) { dy = pt.y - bottom; }
+    if (pt.x - w / 2 < 10) { dx = pt.x - w / 2 - 10; }
+    if (pt.x + w / 2 > iw - 10) { dx = pt.x + w / 2 - (iw - 10); }
+  }
+  if (dx || dy) { map.panBy([dx, dy]); }
 }
 
 function setSelected(lat, lon) {
   removeSelected();
   if (!map || lat === undefined) { return; }
-  selectedMarker = L.circleMarker([lat, lon], { radius: 11, color: '#fff', weight: 3, fillColor: '#ff3b30', fillOpacity: 1 }).addTo(map);
+  stopIcons();
+  selectedMarker = L.marker([lat, lon], { icon: STOP_ICON_SEL, zIndexOffset: 1000, interactive: false, keyboard: false }).addTo(map);
 }
 function removeSelected() {
   if (selectedMarker && map) { map.removeLayer(selectedMarker); }
@@ -553,8 +669,14 @@ function finishSearch(items, text) {
 
 q.addEventListener('focus', function () {
   $('cancel').style.display = 'block';
+  typing = true; updateClasses();
   if (state !== 0) { setState(0, true); }
 }, false);
+q.addEventListener('blur', function () { typing = false; updateClasses(); }, false);
+// Open the sheet fully BEFORE the keyboard appears, so Safari does not scroll the page to find the search box
+function openFullForTyping() { if (state !== 0) { setState(0, false); } }
+q.addEventListener('touchstart', openFullForTyping, false);
+q.addEventListener('mousedown', openFullForTyping, false);
 q.addEventListener('input', function () {
   var v = q.value.replace(/^\s+|\s+$/g, '');
   $('clear').style.display = q.value ? 'block' : 'none';
@@ -641,6 +763,7 @@ function openStop(item, fromMap) {
   VIEW = 'stop';
   currentStop = item;
   addRecent(item);
+  if (map) { map.closePopup(); }
   q.blur(); q.value = '';
   $('clear').style.display = 'none'; $('cancel').style.display = 'none';
   $('areaBtn').style.display = 'none';
@@ -703,9 +826,9 @@ function loadArrivals() {
 
 function two(n) { return ('0' + n).slice(-2); }
 
-function fillVeh(reg, opEl, fleetEl) {
+function fillVeh(reg, fleetEl) {
   lookupVehicle(reg, function (rec) {
-    if (rec.ok) { opEl.textContent = rec.op; fleetEl.textContent = rec.fleet; }
+    if (rec.ok) { fleetEl.textContent = rec.fleet; }
   });
 }
 
@@ -730,10 +853,10 @@ function renderArrivals(data) {
       var reg = String(a.vehicleId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (i < 8 && reg.length >= 2 && reg.length <= 8) {
         var veh = el('div', 'veh');
-        var opEl = el('span', 'vop'), fleetEl = el('span', 'vfleet');
-        veh.appendChild(opEl); veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
+        var fleetEl = el('span', 'vfleet');
+        veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
         mid.appendChild(veh);
-        fillVeh(reg, opEl, fleetEl);
+        fillVeh(reg, fleetEl);
       }
       li.appendChild(mid);
       li.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
@@ -762,9 +885,9 @@ $('areaBtn').onclick = function () {
 };
 
 function applyTheme() {
-  var dark = false;
-  if (window.matchMedia) { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; }
-  document.body.className = dark ? 'dark' : '';
+  isDark = false;
+  if (window.matchMedia) { isDark = window.matchMedia('(prefers-color-scheme: dark)').matches; }
+  updateClasses();
 }
 if (window.matchMedia) {
   var mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -772,7 +895,24 @@ if (window.matchMedia) {
 }
 document.addEventListener('visibilitychange', function () { if (!document.hidden && currentStop) { loadArrivals(); } }, false);
 window.addEventListener('resize', layout, false);
-window.addEventListener('orientationchange', function () { setTimeout(layout, 300); }, false);
+window.addEventListener('orientationchange', function () {
+  setTimeout(function () {
+    layout();
+    if (map && currentStop && currentStop.lat !== undefined) {
+      centerAbove(currentStop.lat, currentStop.lon, map.getZoom(), state === 0 ? 1 : state);
+    }
+  }, 300);
+}, false);
+if (window.visualViewport) {            // keep the last search result reachable above the keyboard
+  var onVV = function () {
+    var vv = window.visualViewport;
+    var kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+    kbHeight = kb > 80 ? kb : 0;
+    applyContentPad();
+  };
+  window.visualViewport.addEventListener('resize', onVV, false);
+  window.visualViewport.addEventListener('scroll', onVV, false);
+}
 
 applyTheme();
 initMap();
