@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>ZK's London Bus Tracker</title>
+<title>ZK’s London Bus Tracker</title>
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <script>
 // Older iPhones/iPads get the edition built for them (add ?stay=1 to the address to stay on this one)
 (function () {
@@ -36,12 +38,15 @@
            margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); }
   .ctrls button { display: block; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px;
                   background: rgba(250,250,252,.95); color: #0a84ff; box-shadow: 0 1px 8px rgba(0,0,0,.25); }
-  .warn { position: fixed; left: 10px; right: 70px; top: 34px; z-index: 500; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.95); color: #8a1f11; font-size: 13px; line-height: 17px; box-shadow: 0 1px 6px rgba(0,0,0,.25);
+  .warn { position: fixed; left: 10px; right: 70px; top: 66px; z-index: 500; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.95); color: #8a1f11; font-size: 13px; line-height: 17px; box-shadow: 0 1px 6px rgba(0,0,0,.25);
           margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); }
-  .area { position: fixed; left: 50%; top: 58px; z-index: 500; padding: 9px 16px; border: 0; border-radius: 18px;
-          font-size: 15px; font-weight: 600; background: rgba(250,250,252,.96); color: #0a84ff;
-          box-shadow: 0 1px 8px rgba(0,0,0,.25); -webkit-transform: translateX(-50%); transform: translateX(-50%);
+  .area { position: fixed; right: 64px; top: 12px; z-index: 500; height: 44px; padding: 0 16px; border: 0; border-radius: 12px;
+          font-size: 15px; font-weight: 600; line-height: 44px; background: rgba(250,250,252,.95); color: #0a84ff;
+          box-shadow: 0 1px 8px rgba(0,0,0,.25);
           margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); white-space: nowrap; }
+  .logo { position: fixed; left: 12px; top: 12px; z-index: 500; width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 1px 8px rgba(0,0,0,.35); pointer-events: none;
+          margin-top: constant(safe-area-inset-top); margin-top: env(safe-area-inset-top); }
+  .leaflet-top.leaflet-left { margin-left: 62px; }
   .dark .ctrls button, .dark .area { background: rgba(44,44,46,.95); }
 
   /* ----- bottom sheet ----- */
@@ -127,7 +132,6 @@
   /* ----- landscape: the panel moves to the left ----- */
   body.land .sheet { left: 12px; left: calc(12px + constant(safe-area-inset-left)); left: calc(12px + env(safe-area-inset-left));
                      right: auto; width: 370px; max-width: 48%; margin: 0; }
-  body.land .area { left: calc(50% + 185px); }
   body.typing .ctrls, body.typing .area { display: none; }
 
   /* ----- dark ----- */
@@ -148,6 +152,7 @@
 </head>
 <body>
 <div id="map"></div>
+<img class="logo" src="logo.png" width="44" height="44" alt="ZK’s London Bus Tracker">
 <div id="mapWarn" class="warn" style="display:none">The map pictures could not load on this device. Stops, search and times still work.</div>
 
 <div class="ctrls">
