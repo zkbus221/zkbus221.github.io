@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>ZK's London Bus Tracker (skeuomorphic edition)</title>
+<title>ZK’s London Bus Tracker (iOS 5-6)</title>
+<link rel="icon" type="image/png" href="../logo.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.css">
 <style>
   * { -webkit-box-sizing: border-box; box-sizing: border-box; }
@@ -32,7 +34,8 @@
   .bbtn { position: absolute; top: 0; }
   .blocate svg { display: block; margin: 0 auto; }
 
-  .area { position: fixed; left: 50%; top: 56px; z-index: 450; padding: 8px 16px; font-size: 14px; font-weight: bold; white-space: nowrap; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+  .area { position: fixed; left: 64px; bottom: 7px; z-index: 510; height: 30px; padding: 0 12px; font-size: 13px; line-height: 30px; font-weight: bold; white-space: nowrap; }
+  .tlogo { float: left; width: 30px; height: 30px; margin-right: 8px; border-radius: 15px; }
   .warn { position: fixed; left: 10px; right: 10px; top: 54px; z-index: 450; padding: 8px 10px; font-size: 13px; line-height: 17px; }
 
   /* list that appears while searching */
@@ -166,6 +169,7 @@
   <div class="tb-row">
     <button id="cancel" class="tbtn tcancel" type="button" style="display:none">Cancel</button>
     <button id="nearBtn" class="tbtn tnear" type="button">Nearby</button>
+    <img class="tlogo" src="../logo.png" width="30" height="30" alt="ZK’s London Bus Tracker">
     <div class="sfield">
       <svg class="sglass" viewBox="0 0 24 24" width="14" height="14"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#8e8e93" stroke-width="2.8"/><line x1="15" y1="15" x2="21" y2="21" stroke="#8e8e93" stroke-width="2.8" stroke-linecap="round"/></svg>
       <input id="q" type="text" placeholder="Search bus stops" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
@@ -197,7 +201,7 @@
 
 /* ===== Settings you can change ===== */
 var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
-var REFRESH_MS = 30000;        // arrivals refresh (milliseconds)
+var REFRESH_MS = 20000;        // arrivals refresh (milliseconds)
 var NEARBY_RADIUS = 400;       // metres
 var TILE_URL = API_BASE + '/tile/{z}/{x}/{y}.png';   // map pictures come through your Worker, because old iOS cannot reach OpenStreetMap directly
 var MAX_DOTS = 20;             // most stop pins drawn on the map
@@ -1098,7 +1102,7 @@ function infoRow(title, sub, fn) {
 
 function buildInfoScreen(s, body) {
   var hdr = el('div', 'hdr');
-  hdr.appendChild(el('h1', 'hname', 'London buses'));
+  hdr.appendChild(el('h1', 'hname', 'ZK\u2019s London Bus Tracker'));
   hdr.appendChild(el('div', 'hsub', 'Live bus times for older iPhones and iPads'));
   body.appendChild(hdr);
   body.appendChild(el('div', 'sec2', 'Actions'));
