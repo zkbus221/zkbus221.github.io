@@ -8,6 +8,9 @@ Just paste zkbus221.github.io in your browser and hit enter
 For iOS 7-13:
 Just paste zkbus221.github.io/legacy/ in your browser and hit enter
 
+For iOS <=6:
+Just paste zkbus221.github.io/ios6/ in your browser and hit enter
+
 ## Source used:
 TfL Live Bus Data - https://api-portal.tfl.gov.uk/api-details#api=StopPoint&operation=Forward_Proxy
 
