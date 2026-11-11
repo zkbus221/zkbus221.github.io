@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ZK's London Bus Tracker (skeuomorphic edition)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.css">
+<style>
+  * { -webkit-box-sizing: border-box; box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; -webkit-text-size-adjust: 100%; }
+  body { position: fixed; top: 0; left: 0; right: 0; bottom: 0; -webkit-tap-highlight-color: rgba(0,0,0,0); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  button { margin: 0; padding: 0; border: 0; background: none; font-family: inherit; cursor: pointer; -webkit-appearance: none; }
+  input { margin: 0; padding: 0; border: 0; outline: none; font-family: inherit; -webkit-appearance: none; -webkit-user-select: text; user-select: text; }
+  h1 { margin: 0; }
+
+  #map { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
+  .leaflet-bottom { margin-bottom: 46px; }
+  body.ov .botbar, body.ov .area { display: none; }
+
+  /* top bar with the search box */
+  .topbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 500; }
+  .tb-row { padding: 7px 8px; overflow: hidden; }
+  .tbtn { float: right; height: 30px; }
+  .sfield { position: relative; overflow: hidden; height: 30px; }
+  .sglass { position: absolute; left: 9px; top: 8px; }
+  .sfield input { width: 100%; height: 30px; padding: 0 28px 0 30px; font-size: 15px; background: transparent; }
+  .sclear { position: absolute; right: 5px; top: 5px; width: 20px; height: 20px; border-radius: 10px; font-size: 15px; line-height: 20px; text-align: center; color: #fff; }
+
+  /* bottom bar */
+  .botbar { position: fixed; bottom: 0; left: 0; right: 0; height: 44px; z-index: 500; }
+  .bbtn { position: absolute; top: 0; }
+  .blocate svg { display: block; margin: 0 auto; }
+
+  .area { position: fixed; left: 50%; top: 56px; z-index: 450; padding: 8px 16px; font-size: 14px; font-weight: bold; white-space: nowrap; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+  .warn { position: fixed; left: 10px; right: 10px; top: 54px; z-index: 450; padding: 8px 10px; font-size: 13px; line-height: 17px; }
+
+  /* list that appears while searching */
+  .overlay { display: none; position: fixed; top: 44px; bottom: 0; left: 0; right: 0; z-index: 400; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .olist { max-width: 720px; margin: 0 auto; }
+
+  /* screens that cover the map */
+  .screen { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 700; }
+  .navbar { position: absolute; top: 0; left: 0; right: 0; height: 44px; }
+  .ntitle { position: absolute; left: 90px; right: 90px; top: 0; height: 44px; line-height: 44px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nback { position: absolute; left: 0; top: 0; height: 44px; }
+  .sbody { position: absolute; top: 44px; bottom: 0; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .sbody > * { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .spacer { height: 50px; }
+
+  /* lists and rows */
+  .tbl { margin: 0; padding: 0; list-style: none; }
+  .row { position: relative; min-height: 56px; padding: 9px 44px 9px 58px; }
+  .row.nob { padding-left: 14px; }
+  .sicon { position: absolute; left: 12px; top: 50%; width: 34px; height: 34px; margin-top: -17px; border-radius: 17px; }
+  .sicon svg { position: absolute; left: 7px; top: 7px; }
+  .rbody { min-width: 0; }
+  .rd { position: absolute; right: 28px; top: 50%; margin-top: -8px; }
+  .chips { margin-top: 5px; }
+  .chip { display: inline-block; margin: 0 4px 0 0; padding: 1px 6px; font-size: 12px; font-weight: bold; color: #fff; }
+  .row.go:after { content: ''; position: absolute; right: 14px; top: 50%; width: 9px; height: 9px; margin-top: -5px; border-right: 2px solid #c4c4c9; border-top: 2px solid #c4c4c9; -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+
+  .row.arr { padding-left: 72px; padding-right: 88px; }
+  .row.arr.nob { padding-left: 14px; }
+  .arr .badge { position: absolute; left: 12px; top: 50%; min-width: 48px; margin-top: -15px; padding: 5px 7px; font-size: 17px; line-height: 20px; font-weight: bold; color: #fff; text-align: center; }
+  .mcol { position: absolute; right: 12px; top: 50%; margin-top: -23px; text-align: right; }
+  .row.arr.go .mcol { right: 28px; }
+  .mins { font-size: 20px; line-height: 24px; }
+  .clock { font-size: 13px; line-height: 17px; }
+  .row.arr.srow .rt { font-size: 20px; }
+  .veh { margin-top: 5px; }
+  .veh span { display: inline-block; margin: 0 6px 3px 0; }
+  .vfleet { padding: 1px 6px; font-size: 12px; font-weight: bold; color: #fff; }
+  .vfleet:empty { display: none; }
+  .plate { padding: 1px 6px; border: 1px solid rgba(0,0,0,.4); border-radius: 3px; background: #f7d117; color: #000; font-size: 12px; font-weight: bold; letter-spacing: .6px; }
+
+  .note { padding: 10px 14px; font-size: 15px; line-height: 20px; }
+  .upd { padding: 10px 14px; font-size: 12px; }
+  .snote { padding: 0 14px 8px; font-size: 13px; }
+  .seclink { float: right; font-size: 15px; }
+
+  /* map pins and the speech bubble over them */
+  .stopico { border-radius: 50%; }
+  .stopico svg { position: absolute; left: 50%; top: 50%; margin: -10px 0 0 -10px; }
+  .call { position: relative; min-width: 150px; padding-right: 30px; cursor: pointer; }
+  .call-title { font-size: 15px; line-height: 19px; font-weight: bold; }
+  .call-sub { margin-top: 1px; font-size: 12px; line-height: 16px; }
+  .call-go { position: absolute; right: 0; top: 50%; }
+  .leaflet-popup-content { margin: 9px 12px; line-height: 1.25; }
+
+  /* ===== iOS 5 / 6 Maps look: blue-grey bars, glossy buttons, linen tables, dark callouts ===== */
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #000; background: #dedbd3; }
+  .topbar, .navbar { background: #6d84a8; background: -webkit-linear-gradient(top, #a9b9d2 0%, #7f94b4 49%, #6c83a7 50%, #5f78a0 100%); background: linear-gradient(to bottom, #a9b9d2 0%, #7f94b4 49%, #6c83a7 50%, #5f78a0 100%);
+                     border-bottom: 1px solid #2d3f5f; box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 1px 4px rgba(0,0,0,.55); }
+  .botbar { background: #3b4a66; background: -webkit-linear-gradient(top, rgba(96,111,139,.96), rgba(38,47,67,.97)); background: linear-gradient(to bottom, rgba(96,111,139,.96), rgba(38,47,67,.97));
+            border-top: 1px solid #10192b; box-shadow: inset 0 1px 0 rgba(255,255,255,.25); }
+  .sfield { border-radius: 15px; background: #fff; box-shadow: inset 0 1px 3px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.4); }
+  .sfield input { color: #000; }
+  .sclear { background: #8d8d92; }
+  .tbtn, .nback { height: 30px; margin: 0 0 0 6px; padding: 0 11px; border: 1px solid #2d3f5f; border-radius: 5px; font-size: 13px; line-height: 28px; font-weight: bold; color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.5);
+                  background: #566f98; background: -webkit-linear-gradient(top, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%); background: linear-gradient(to bottom, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%);
+                  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 0 rgba(255,255,255,.25); }
+  .nback { left: 8px; top: 7px; height: 30px; margin-left: 12px; padding-left: 15px; border-left: 0; border-radius: 0 5px 5px 0; }
+  .nback:before { content: ''; position: absolute; left: -10px; top: 3px; width: 20px; height: 20px; border-left: 1px solid #2d3f5f; border-bottom: 1px solid #2d3f5f; border-radius: 0 0 0 4px; background: #6a82a7; -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+  .nback:after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 10px; background: #6a82a7; background: -webkit-linear-gradient(top, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%); background: linear-gradient(to bottom, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%); }
+  .ntitle { font-size: 20px; font-weight: bold; color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.5); }
+  .bbtn { top: 7px; height: 30px; }
+  .blocate { left: 8px; width: 44px; padding-top: 4px; border: 1px solid #10192b; border-radius: 5px;
+             background: #46597c; background: -webkit-linear-gradient(top, #8393b0 0%, #566a8d 49%, #3f5277 50%, #394c71 100%); background: linear-gradient(to bottom, #8393b0 0%, #566a8d 49%, #3f5277 50%, #394c71 100%);
+             box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
+  .blocate path { fill: #fff; stroke: #fff; stroke-width: 1; }
+  .binfo { right: 0; top: 0; width: 46px; height: 44px; background: #d9d9d9; background: -webkit-linear-gradient(135deg, rgba(255,255,255,0) 46%, #aeb1b6 47%, #f4f5f6 75%, #ffffff 100%); background: linear-gradient(135deg, rgba(255,255,255,0) 46%, #aeb1b6 47%, #f4f5f6 75%, #ffffff 100%); border-top-left-radius: 44px 44px; box-shadow: -1px -1px 3px rgba(0,0,0,.45); }
+  .area { border: 1px solid #2d3f5f; border-radius: 16px; color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.5);
+          background: #566f98; background: -webkit-linear-gradient(top, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%); background: linear-gradient(to bottom, #9aacc7 0%, #6a82a7 49%, #536d96 50%, #4f6992 100%); box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+  .warn { border: 1px solid #2d3f5f; border-radius: 8px; background: #fff; color: #8a1f11; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+
+  .overlay { background: #fff; }
+  .sec { padding: 2px 12px; font-size: 16px; line-height: 21px; font-weight: bold; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.45); border-top: 1px solid #8a95a3; border-bottom: 1px solid #7d8795;
+         background: #8f9aa9; background: -webkit-linear-gradient(top, #a8b1bd, #8a96a6); background: linear-gradient(to bottom, #a8b1bd, #8a96a6); }
+  .seclink { color: #fff; font-weight: bold; text-shadow: 0 1px 0 rgba(0,0,0,.45); line-height: 21px; }
+  .row { border-bottom: 1px solid #d9d9d9; background: #fff; }
+  .row:last-child { border-bottom: 0; }
+  .sicon { border: 1px solid #1457b8; background: #2a77e0; background: -webkit-radial-gradient(35% 25%, #8bbcf7, #2a77e0 60%, #1561c9); background: radial-gradient(circle at 35% 25%, #8bbcf7, #2a77e0 60%, #1561c9); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+  .bd { fill: #2a77e0; }
+  .rt { font-size: 17px; line-height: 21px; font-weight: bold; }
+  .rs { margin-top: 1px; font-size: 14px; color: #666; }
+  .rd { font-size: 14px; color: #385487; }
+  .chip { border-radius: 4px; background: #c2201b; background: -webkit-linear-gradient(top, #e8453f, #b81610); background: linear-gradient(to bottom, #e8453f, #b81610); }
+  .row.go:after { border-color: #7c7c80; }
+  .note { color: #4c566c; text-shadow: 0 1px 0 rgba(255,255,255,.8); }
+  .note.err { color: #b3000f; }
+
+  .screen { background: #dfe2e8; background: -webkit-linear-gradient(left, rgba(255,255,255,.22) 50%, rgba(0,0,0,.0) 50%) 0 0 / 4px 100% #dfe2e8; background: linear-gradient(to right, rgba(255,255,255,.22) 50%, rgba(0,0,0,0) 50%) 0 0 / 4px 100% #dfe2e8; }
+  .screen .tbl, .hdr { margin: 12px 10px; border: 1px solid #a9abae; border-radius: 9px; overflow: hidden; background: #fff; box-shadow: 0 1px 0 rgba(255,255,255,.7); }
+  .hdr { padding: 12px 14px; }
+  .hname { font-size: 20px; line-height: 25px; font-weight: bold; }
+  .hsub { margin-top: 2px; font-size: 15px; color: #385487; }
+  .sec2 { margin: 16px 20px 2px; font-size: 17px; font-weight: bold; color: #4c566c; text-shadow: 0 1px 0 #fff; }
+  .snote { padding-left: 20px; color: #4c566c; text-shadow: 0 1px 0 #fff; }
+  .upd { color: #4c566c; text-shadow: 0 1px 0 #fff; }
+  .arr .badge { border: 1px solid #8a1410; border-radius: 5px; background: #c2201b; background: -webkit-linear-gradient(top, #ee5650, #b81610 55%, #a8120d); background: linear-gradient(to bottom, #ee5650, #b81610 55%, #a8120d); text-shadow: 0 -1px 0 rgba(0,0,0,.4); }
+  .mins { font-weight: bold; color: #385487; }
+  .clock { color: #666; }
+  .row.here { background: #e3ebf8; }
+  .vfleet { border-radius: 4px; background: #3a3d44; }
+
+  .stopico { border: 2px solid #fff; background: #2a77e0; background: -webkit-radial-gradient(35% 25%, #8bbcf7, #2a77e0 60%, #1561c9); background: radial-gradient(circle at 35% 25%, #8bbcf7, #2a77e0 60%, #1561c9); box-shadow: 0 2px 4px rgba(0,0,0,.55); }
+  .stopico.sel { background: #e8352c; background: -webkit-radial-gradient(35% 25%, #ff9a92, #e8352c 60%, #b81610); background: radial-gradient(circle at 35% 25%, #ff9a92, #e8352c 60%, #b81610); }
+  .stopico.sel .bd { fill: #e8352c; }
+  .leaflet-popup-content-wrapper { border: 1px solid #0a0a0c; border-radius: 9px; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.35);
+                                   background: #2b2d33; background: -webkit-linear-gradient(top, #6f7178 0%, #44464d 50%, #2d2f35 51%, #1b1c20 100%); background: linear-gradient(to bottom, #6f7178 0%, #44464d 50%, #2d2f35 51%, #1b1c20 100%); }
+  .leaflet-popup-tip { background: #1b1c20; border: 1px solid #0a0a0c; }
+  .call-title { color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.6); }
+  .call-sub { color: #c9ccd2; }
+  .call-go { width: 22px; height: 22px; margin-top: -11px; border: 1px solid #fff; border-radius: 11px; box-shadow: 0 1px 2px rgba(0,0,0,.6);
+             background: #1b6fdc; background: -webkit-linear-gradient(top, #6ab4fb, #0b5fd0 55%, #0a54b8); background: linear-gradient(to bottom, #6ab4fb, #0b5fd0 55%, #0a54b8); }
+  .call-go:after { content: ''; position: absolute; left: 5px; top: 6px; width: 7px; height: 7px; border-right: 2px solid #fff; border-top: 2px solid #fff; -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+
+</style>
+</head>
+<body class="ed-ios6">
+<div id="map"></div>
+<div id="mapWarn" class="warn" style="display:none">The map pictures could not load on this device. Stops, search and times still work. (Tap to hide)</div>
+
+<div id="topbar" class="topbar">
+  <div class="tb-row">
+    <button id="cancel" class="tbtn tcancel" type="button" style="display:none">Cancel</button>
+    <button id="nearBtn" class="tbtn tnear" type="button">Nearby</button>
+    <div class="sfield">
+      <svg class="sglass" viewBox="0 0 24 24" width="14" height="14"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#8e8e93" stroke-width="2.8"/><line x1="15" y1="15" x2="21" y2="21" stroke="#8e8e93" stroke-width="2.8" stroke-linecap="round"/></svg>
+      <input id="q" type="text" placeholder="Search bus stops" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+      <button id="clear" class="sclear" type="button" style="display:none" aria-label="Clear">&times;</button>
+    </div>
+  </div>
+</div>
+
+<button id="areaBtn" class="area" type="button" style="display:none">Search this area</button>
+
+<div id="botbar" class="botbar">
+  <button id="locate" class="bbtn blocate" type="button" aria-label="Show my location"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 11.5 21 3l-8.5 18-2.2-7.3z" stroke-linejoin="round"/></svg></button>
+  <button id="infoBtn" class="bbtn binfo" type="button" aria-label="Info"></button>
+</div>
+
+<div id="overlay" class="overlay"><div id="olist" class="olist"></div></div>
+
+<div id="screen" class="screen">
+  <div class="navbar">
+    <button id="back" class="nback" type="button">Back</button>
+    <div id="ntitle" class="ntitle"></div>
+  </div>
+  <div id="sbody" class="sbody"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.js"></script>
+<script>
+/* Classic edition: an Apple Maps look-alike for older iPhones and iPads. ES5 only. */
+
+/* ===== Settings you can change ===== */
+var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
+var REFRESH_MS = 30000;        // arrivals refresh (milliseconds)
+var NEARBY_RADIUS = 400;       // metres
+var TILE_URL = API_BASE + '/tile/{z}/{x}/{y}.png';   // map pictures come through your Worker, because old iOS cannot reach OpenStreetMap directly
+var MAX_DOTS = 20;             // most stop pins drawn on the map
+var MAX_RESULTS = 40;          // most stops listed for one search
+var START_VIEW = [51.5074, -0.1278];   // used if location is unavailable (central London)
+/* =================================== */
+
+var BUS_SVG = '<svg viewBox="0 0 24 24" width="20" height="20"><rect x="4" y="3" width="16" height="15" rx="3" fill="#fff"/><rect x="6" y="5.5" width="12" height="5" rx="1" class="bd"/><circle cx="8.5" cy="14.5" r="1.4" class="bd"/><circle cx="15.5" cy="14.5" r="1.4" class="bd"/><rect x="6" y="18" width="3" height="3" rx="1" fill="#fff"/><rect x="15" y="18" width="3" height="3" rx="1" fill="#fff"/></svg>';
+
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) { e.className = cls; }
+  if (text !== undefined) { e.textContent = text; }
+  return e;
+}
+
+function two(n) { return ('0' + n).slice(-2); }
+
+function toArray(x) { return Object.prototype.toString.call(x) === '[object Array]' ? x : [x]; }
+
+function getJSON(path, onOk, onFail, tries) {
+  tries = tries || 0;
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', API_BASE + path, true);
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState !== 4) { return; }
+    if (xhr.status >= 200 && xhr.status < 300) {
+      var data;
+      try { data = JSON.parse(xhr.responseText); }
+      catch (e) { onFail('Could not read the response from TfL.', 0); return; }
+      onOk(data);
+    } else if (xhr.status === 429) {
+      if (tries < 2) {   // wait a moment and try again before giving up
+        setTimeout(function () { getJSON(path, onOk, onFail, tries + 1); }, 2000 * (tries + 1));
+        return;
+      }
+      onFail('TfL is limiting requests right now. Wait a few seconds and try again.', 429);
+    } else if (xhr.status === 0) {
+      onFail('Could not connect. Check your internet connection.', 0);
+    } else {
+      var detail = '';
+      try { var j = JSON.parse(xhr.responseText); if (j && j.message) { detail = ' ' + String(j.message).slice(0, 140); } } catch (e) {}
+      onFail('TfL did not accept that request (status ' + xhr.status + ').' + detail, xhr.status);
+    }
+  };
+  xhr.send();
+}
+
+function normalize(sp) {
+  var towards = '', i, props = sp.additionalProperties || [];
+  for (i = 0; i < props.length; i++) {
+    if (props[i].key === 'Towards') { towards = props[i].value; }
+  }
+  var lines = [], ls = sp.lines || [];
+  for (i = 0; i < ls.length; i++) { lines.push(ls[i].name); }
+  return {
+    id: sp.naptanId || sp.id,
+    name: sp.commonName,
+    label: sp.commonName + (sp.indicator ? ' (' + sp.indicator + ')' : ''),   // e.g. Golders Green Station (Stop A)
+    lat: sp.lat, lon: sp.lon,
+    towards: towards,
+    letter: String(sp.stopLetter || sp.indicator || '').replace(/^stop\s+/i, '').toUpperCase(),
+    distance: sp.distance || 0,
+    lines: lines,
+    detail: true
+  };
+}
+
+// A search can return a whole station or interchange. Dig out the individual bus stops inside it.
+
+function isBusStop(sp) {
+  return sp.stopType === 'NaptanPublicBusCoachTfl' ||
+         (sp.modes && String(sp.modes).indexOf('bus') !== -1 && !(sp.children && sp.children.length));
+}
+
+function leafStops(sp, out) {
+  var kids = sp.children || [], i;
+  if (kids.length) { for (i = 0; i < kids.length; i++) { leafStops(kids[i], out); } }
+  else if (isBusStop(sp)) { out.push(sp); }
+}
+
+function distanceM(lat1, lon1, lat2, lon2) {
+  var rad = Math.PI / 180, dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+// "Hill Rd" -> "Hill Road", for when a search finds nothing
+
+function expandAbbrev(t) {
+  var m = { rd: 'road', ave: 'avenue', av: 'avenue', ln: 'lane', gdns: 'gardens', gdn: 'garden', stn: 'station', pl: 'place', sq: 'square',
+            cres: 'crescent', dr: 'drive', ct: 'court', pk: 'park', hosp: 'hospital', jct: 'junction', ter: 'terrace', gr: 'grove',
+            cl: 'close', hse: 'house', sch: 'school', ctr: 'centre', ctre: 'centre', univ: 'university', rbt: 'roundabout' };
+  var out = t.replace(/\b([A-Za-z]+)\.?(?=\s|$)/g, function (w, a) { return m[a.toLowerCase()] || w; });
+  out = out.replace(/^st\.?\s/i, 'saint ').replace(/\sst\.?$/i, ' street');
+  return out;
+}
+
+function loadRecents() {
+  try {
+    var r = JSON.parse(localStorage.getItem('busRecents') || '[]');
+    return Object.prototype.toString.call(r) === '[object Array]' ? r : [];
+  } catch (e) { return []; }
+}
+
+function saveRecents() {
+  try { localStorage.setItem('busRecents', JSON.stringify(recents)); } catch (e) {}
+}
+
+function addRecent(item) {
+  var out = [{ id: item.id, name: item.name, label: item.label, lat: item.lat, lon: item.lon, towards: item.towards, lines: item.lines || [] }];
+  for (var i = 0; i < recents.length; i++) {
+    if (recents[i].id !== item.id) { out.push(recents[i]); }
+  }
+  recents = out.slice(0, 8);
+  saveRecents();
+}
+
+function loadVeh() {
+  try {
+    var v = JSON.parse(localStorage.getItem('busVeh') || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch (e) { return {}; }
+}
+
+function saveVeh() {
+  try {
+    var n = 0, k;
+    for (k in vehMem) { if (vehMem.hasOwnProperty(k)) { n++; } }
+    if (n > 400) { vehMem = {}; }
+    localStorage.setItem('busVeh', JSON.stringify(vehMem));
+  } catch (e) {}
+}
+
+var vehMem = loadVeh();       // saved on this device so each bus is only looked up once
+
+var vehQueue = [], vehBusy = 0, vehPending = {};
+
+function prettyReg(r) { return /^[A-Z]{2}[0-9]{2}[A-Z]{3}$/.test(r) ? r.slice(0, 4) + ' ' + r.slice(4) : r; }
+
+function lookupVehicle(reg, cb) {
+  var c = vehMem[reg], now = new Date().getTime();
+  if (c && now - c.t < (c.ok ? 7 * 86400000 : 86400000)) { cb(c); return; }
+  if (vehPending[reg]) { vehPending[reg].push(cb); return; }
+  vehPending[reg] = [cb];
+  vehQueue.push(reg);
+  pumpVeh();
+}
+
+function finishVeh(reg, rec) {
+  vehBusy--;
+  var cbs = vehPending[reg] || [];
+  delete vehPending[reg];
+  for (var i = 0; i < cbs.length; i++) { cbs[i](rec); }
+  pumpVeh();
+}
+
+function pumpVeh() {
+  while (vehBusy < 2 && vehQueue.length) {
+    (function (reg) {
+      vehBusy++;
+      getJSON('/vehicle/' + encodeURIComponent(reg),
+        function (d) {
+          var rec = { ok: !!d.found, op: d.operator || '', fleet: d.fleet || '', type: d.type || '', t: new Date().getTime() };
+          if (!d.error) { vehMem[reg] = rec; saveVeh(); }
+          finishVeh(reg, rec);
+        },
+        function () { finishVeh(reg, { ok: false, op: '', fleet: '', type: '', t: 0 }); });
+    })(vehQueue.shift());
+  }
+}
+
+var DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function clearNode(e) { while (e.firstChild) { e.removeChild(e.firstChild); } }
+
+function fmtTime(min) { return two(Math.floor(min / 60) % 24) + ':' + two(min % 60); }
+
+function hmMin(o) { return parseInt(o.hour, 10) * 60 + parseInt(o.minute, 10); }
+
+// Does a schedule called e.g. "Monday - Friday" or "Saturday" run on weekday number dow (0 = Sunday)?
+
+function scheduleRunsOn(name, dow) {
+  var n = String(name || '').toLowerCase(), found = [], i, at, k, d;
+  if (n.indexOf('holiday') !== -1) { return false; }
+  for (i = 0; i < 7; i++) {
+    at = n.indexOf(DAY_NAMES[i]);
+    if (at === -1) { at = n.indexOf(DAY_NAMES[i].slice(0, 3)); }
+    if (at !== -1) { found.push({ d: i, at: at }); }
+  }
+  if (!found.length) { return /daily|every day|all days|7 days/.test(n); }
+  found.sort(function (a, b) { return a.at - b.at; });
+  if (found.length === 2 && /-|\bto\b|\u2013/.test(n.slice(found[0].at, found[1].at))) {   // a range, such as Monday - Friday
+    d = found[0].d;
+    for (k = 0; k < 7; k++) {
+      if (d === dow) { return true; }
+      if (d === found[1].d) { break; }
+      d = (d + 1) % 7;
+    }
+    return false;
+  }
+  for (i = 0; i < found.length; i++) { if (found[i].d === dow) { return true; } }
+  return false;
+}
+
+// Work out the next scheduled times from the saved timetables
+
+function buildSchedule(tts) {
+  var now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), dow = now.getDay();
+  var times = [], freqAll = [], seen = {}, withTimes = {}, t, r, s, o, j, p;
+  for (t = 0; t < tts.length; t++) {
+    var tt = tts[t].tt, line = tts[t].line;
+    var routes = (tt && tt.timetable && tt.timetable.routes) || [];
+    for (r = 0; r < routes.length; r++) {
+      var scheds = routes[r].schedules || [];
+      for (s = 0; s < scheds.length; s++) {
+        var sc = scheds[s];
+        for (o = -1; o <= 1; o++) {                       // yesterday, today, tomorrow
+          if (!scheduleRunsOn(sc.name, (dow + o + 7) % 7)) { continue; }
+          var jn = sc.knownJourneys || [];
+          for (j = 0; j < jn.length; j++) {
+            var m = hmMin(jn[j]), abs = o * 1440 + m, key = line + '|' + abs;
+            if (isNaN(m) || abs <= nowMin || seen[key]) { continue; }
+            seen[key] = true; withTimes[line] = true;
+            times.push({ abs: abs, line: line });
+          }
+          if (o === 0) {                                   // services that run "every X minutes"
+            var ps = sc.periods || [];
+            for (p = 0; p < ps.length; p++) {
+              if (!ps[p].frequency || !ps[p].fromTime || !ps[p].toTime) { continue; }
+              var from = hmMin(ps[p].fromTime), to = hmMin(ps[p].toTime);
+              if (to < from) { to += 1440; }
+              if (!isNaN(from) && !isNaN(to) && to > nowMin) {
+                freqAll.push({ line: line, from: from, to: to, lo: ps[p].frequency.lowestFrequency, hi: ps[p].frequency.highestFrequency });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  times.sort(function (a, b) { return a.abs - b.abs; });
+  freqAll.sort(function (a, b) { return a.from - b.from; });
+  var freqs = [], done = {};
+  for (j = 0; j < freqAll.length; j++) {
+    if (!done[freqAll[j].line] && !withTimes[freqAll[j].line]) { done[freqAll[j].line] = true; freqs.push(freqAll[j]); }
+  }
+  return { times: times.slice(0, 10), freqs: freqs };
+}
+
+function ensureLines(item, cb) {
+  if (item.lines && item.lines.length) { cb(); return; }
+  getJSON('/StopPoint/' + encodeURIComponent(item.id),
+    function (res) {
+      var sp = toArray(res)[0];
+      if (sp && sp.commonName) { item.lines = normalize(sp).lines; }
+      cb();
+    },
+    function () { cb(); });
+}
+
+var nearbyTry = 0;      // which way of asking TfL worked last time
+
+function nearbyPaths(la, lo) {
+  var base = '/StopPoint?lat=' + la + '&lon=' + lo + '&radius=' + NEARBY_RADIUS;
+  var extra = '&modes=bus&returnLines=true&categories=Direction&useStopPointHierarchy=false';
+  return [
+    base + '&stopTypes=NaptanPublicBusCoachTram' + extra,
+    base + '&stopTypes=NaptanPublicBusCoachTfl' + extra,
+    base + '&stopTypes=NaptanPublicBusCoachTram',
+    base + '&stopTypes=NaptanPublicBusCoachTfl',
+    base + '&stopTypes=NaptanOnstreetBusCoachStopPair' + extra
+  ];
+}
+
+function fetchNearby(la, lo, ok, fail) {
+  var paths = nearbyPaths(la, lo), tried = 0, lastMsg = '';
+  var attempt = function () {
+    if (tried >= paths.length) { fail(lastMsg); return; }
+    var idx = (nearbyTry + tried) % paths.length;
+    getJSON(paths[idx],
+      function (data) { nearbyTry = idx; ok(data); },
+      function (msg, status) {
+        lastMsg = msg;
+        if (status === 400 || status === 404) { tried++; attempt(); } else { fail(msg); }
+      });
+  };
+  attempt();
+}
+
+function searchItems(arr) {
+  var leaves = [], items = [], seen = {}, i, it;
+  for (i = 0; i < arr.length; i++) { if (arr[i]) { leafStops(arr[i], leaves); } }
+  for (i = 0; i < leaves.length; i++) {
+    it = normalize(leaves[i]);
+    if (!it.id || seen[it.id]) { continue; }
+    seen[it.id] = true;
+    it.detail = !!(leaves[i].additionalProperties && leaves[i].additionalProperties.length);   // children often lack "Towards"
+    items.push(it);
+  }
+  return items;
+}
+
+function arrivalsForKids(mine, ok, fail) {
+  var kids = mine.kids.slice(0, 12), pending = kids.length, all = [], bad = 0;
+  var one = function (kid) {
+    getJSON('/StopPoint/' + encodeURIComponent(kid.id) + '/Arrivals',
+      function (d) {
+        for (var i = 0; i < d.length; i++) { if (!d[i].platformName || d[i].platformName === 'null') { d[i].platformName = kid.letter; } all.push(d[i]); }
+        if (--pending === 0) { ok(all); }
+      },
+      function () { bad++; if (--pending === 0) { if (bad === kids.length) { fail('Could not reach TfL.'); } else { ok(all); } } });
+  };
+  for (var i = 0; i < kids.length; i++) { one(kids[i]); }
+}
+
+// If a stop says nothing, ask by route instead
+
+function arrivalsByLine(mine, ok) {
+  ensureLines(mine, function () {
+    var names = (mine.lines || []).slice(0, 10), ids = [], i;
+    if (!names.length) { ok([]); return; }
+    for (i = 0; i < names.length; i++) { ids.push(encodeURIComponent(names[i].toLowerCase())); }
+    getJSON('/Line/' + ids.join(',') + '/Arrivals/' + encodeURIComponent(mine.id),
+      function (d) { ok(Object.prototype.toString.call(d) === '[object Array]' ? d : []); },
+      function () { ok([]); });
+  });
+}
+
+var q = $('q');
+var map = null, nearbyLayer = null, selectedMarker = null, youMarker = null, attrib = null;
+var stack = [], screenTimer = null;                     // screens opened on top of the map; the last one is showing
+var overlayOn = false, homeItems = [], homeNote = '', homeLoading = false, stickyNote = '';
+var searchSeq = 0, searchTimer = null, searchState = { q: '', busy: false, items: null, msg: '' };
+var recents = loadRecents();
+var nearbyCache = {}, searchCache = {};
+var STOP_ICON = null, STOP_ICON_SEL = null;
+
+function trimmed(s) { return s.replace(/^\s+|\s+$/g, ''); }
+function curScreen() { return stack.length ? stack[stack.length - 1] : null; }
+
+/* ---------- map ---------- */
+
+function stopIcons() {
+  if (!STOP_ICON && typeof L !== 'undefined') {
+    STOP_ICON = L.divIcon({ className: 'stopico', html: BUS_SVG, iconSize: [30, 30], iconAnchor: [15, 15] });
+    STOP_ICON_SEL = L.divIcon({ className: 'stopico sel', html: BUS_SVG, iconSize: [30, 30], iconAnchor: [15, 15] });
+  }
+}
+
+function initMap() {
+  if (typeof L === 'undefined') { $('map').style.display = 'none'; homeNote = 'The map could not load, but search still works.'; return; }
+  map = L.map('map', { zoomControl: false, attributionControl: false }).setView(START_VIEW, 16);
+  var tiles = L.tileLayer(TILE_URL, { maxZoom: 19 }).addTo(map);
+  var ok = 0, bad = 0;
+  tiles.on('tileload', function () { ok++; });
+  tiles.on('tileerror', function () { bad++; });
+  setTimeout(function () { if (!ok && bad) { $('mapWarn').style.display = 'block'; } }, 8000);
+  attrib = L.control.attribution({ prefix: false, position: 'bottomright' });
+  attrib.addAttribution('&copy; OpenStreetMap contributors');
+  attrib.addTo(map);
+  nearbyLayer = L.layerGroup().addTo(map);
+  map.on('dragend', function () { if (!overlayOn && !stack.length) { $('areaBtn').style.display = 'block'; } });
+}
+
+// The speech bubble over a stop pin: name, next buses, and an arrow to the full list
+function makeCallout(item) {
+  var box = { el: el('div', 'call'), sub: null, seq: 0 };
+  var main = el('div', 'call-main');
+  main.appendChild(el('div', 'call-title', item.label));
+  box.sub = el('div', 'call-sub', item.towards ? 'Towards ' + item.towards : '');
+  main.appendChild(box.sub);
+  box.el.appendChild(main);
+  box.el.appendChild(el('div', 'call-go'));
+  box.el.onclick = function () { if (map) { map.closePopup(); } openStop(item, 'map'); };
+  return box;
+}
+
+function fillCallout(box, item) {
+  var my = ++box.seq;
+  box.sub.textContent = 'Loading departures\u2026';
+  getJSON('/StopPoint/' + encodeURIComponent(item.id) + '/Arrivals',
+    function (data) {
+      if (my !== box.seq) { return; }
+      data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+      var parts = [], i, mins;
+      for (i = 0; i < data.length && i < 2; i++) {
+        mins = Math.floor(data[i].timeToStation / 60);
+        parts.push(data[i].lineName + ' ' + (mins < 1 ? 'due' : 'in ' + mins + ' min'));
+      }
+      box.sub.textContent = parts.length ? 'Next: ' + parts.join(', ') : 'No buses due right now';
+    },
+    function () { if (my === box.seq) { box.sub.textContent = item.towards ? 'Towards ' + item.towards : 'Tap for departures'; } });
+}
+
+function drawDots(items) {
+  if (!nearbyLayer) { return; }
+  stopIcons();
+  nearbyLayer.clearLayers();
+  for (var i = 0; i < items.length && i < MAX_DOTS; i++) {
+    (function (item) {
+      if (item.lat === undefined) { return; }
+      var m = L.marker([item.lat, item.lon], { icon: STOP_ICON, keyboard: false });
+      var box = makeCallout(item);
+      m.bindPopup(box.el, { closeButton: false, minWidth: 150, maxWidth: 260, offset: [0, -14], autoPanPadding: L.point(10, 62) });
+      m.on('popupopen', function () { m.setIcon(STOP_ICON_SEL); fillCallout(box, item); });
+      m.on('popupclose', function () { m.setIcon(STOP_ICON); });
+      m.addTo(nearbyLayer);
+    })(items[i]);
+  }
+}
+
+function setSelected(lat, lon) {
+  removeSelected();
+  if (!map || lat === undefined) { return; }
+  stopIcons();
+  selectedMarker = L.marker([lat, lon], { icon: STOP_ICON_SEL, zIndexOffset: 1000, clickable: false, keyboard: false }).addTo(map);
+}
+function removeSelected() {
+  if (selectedMarker && map) { map.removeLayer(selectedMarker); }
+  selectedMarker = null;
+}
+
+/* ---------- nearby stops and location ---------- */
+
+function applyNearby(items) {
+  homeItems = items; homeLoading = false;
+  homeNote = items.length ? stickyNote : 'No bus stops within ' + NEARBY_RADIUS + ' m. Drag the map and try Search this area.';
+  drawDots(items);
+  renderOverlay();
+}
+
+function loadNearby(lat, lon) {
+  var lat0 = Number(lat), lon0 = Number(lon);
+  var la = lat0.toFixed(3), lo = lon0.toFixed(3);
+  var key = la + ',' + lo, hit = nearbyCache[key];
+  if (hit && new Date().getTime() - hit.t < 300000) { applyNearby(hit.items); return; }
+  homeLoading = true; homeNote = '';
+  renderOverlay();
+  fetchNearby(la, lo,
+    function (data) {
+      var stops = data.stopPoints || [], leaves = [], items = [], seen = {}, i, it;
+      for (i = 0; i < stops.length; i++) { leafStops(stops[i], leaves); }
+      for (i = 0; i < leaves.length; i++) {
+        it = normalize(leaves[i]);
+        if (!it.id || seen[it.id] || it.lat === undefined) { continue; }
+        seen[it.id] = true;
+        it.distance = distanceM(lat0, lon0, it.lat, it.lon);
+        it.detail = !!(leaves[i].additionalProperties && leaves[i].additionalProperties.length);
+        if (it.distance <= NEARBY_RADIUS + 150) { items.push(it); }
+      }
+      items.sort(function (a, b) { return a.distance - b.distance; });
+      nearbyCache[key] = { t: new Date().getTime(), items: items };
+      applyNearby(items);
+    },
+    function (msg) { homeLoading = false; homeNote = msg; renderOverlay(); });
+}
+
+function fallbackStart(note) {
+  var c = map ? map.getCenter() : { lat: START_VIEW[0], lng: START_VIEW[1] };
+  stickyNote = note;
+  loadNearby(c.lat, c.lng);
+}
+
+function locate(initial) {
+  if (!navigator.geolocation) { fallbackStart('This device cannot share its location.'); return; }
+  homeLoading = true; homeNote = 'Finding your location\u2026';
+  renderOverlay();
+  navigator.geolocation.getCurrentPosition(
+    function (pos) {
+      var lat = pos.coords.latitude, lon = pos.coords.longitude;
+      stickyNote = '';
+      if (map) {
+        map.setView([lat, lon], 16);
+        if (youMarker) { map.removeLayer(youMarker); }
+        youMarker = L.circleMarker([lat, lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2a7de1', fillOpacity: 1 }).addTo(map);
+      }
+      loadNearby(lat, lon);
+    },
+    function () {
+      fallbackStart(initial ? 'Showing central London. Tap the arrow at the bottom left to use your location.' : 'Could not get your location. Check that location access is allowed for this site.');
+    },
+    { timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+/* ---------- search ---------- */
+
+function searchStops(text, done, fail) {
+  var key = text.toLowerCase();
+  if (searchCache[key]) { done(searchCache[key]); return; }
+  var name = text, letter = '', lm = text.match(/^(.*\S)\s+stop\s+([a-z0-9]{1,2})$/i);   // "king's cross stop d"
+  if (lm) { name = lm[1]; letter = lm[2].toUpperCase(); }
+
+  var finish = function (items) {
+    var k, f = [];
+    if (letter) {
+      for (k = 0; k < items.length; k++) { if (items[k].letter === letter) { f.push(items[k]); } }
+      if (f.length) { items = f; }
+    }
+    items = items.slice(0, MAX_RESULTS);
+    if (items.length) { searchCache[key] = items; }
+    done(items);
+  };
+
+  var byName = function (nm, last) {
+    getJSON('/StopPoint/Search?query=' + encodeURIComponent(nm) + '&modes=bus&maxResults=' + MAX_RESULTS,
+      function (data) {
+        var ms = data.matches || [], ids = [], seen = {}, basics = [], i;
+        for (i = 0; i < ms.length; i++) {
+          if (seen[ms[i].id]) { continue; }
+          seen[ms[i].id] = true; ids.push(encodeURIComponent(ms[i].id));
+          basics.push({ id: ms[i].id, name: ms[i].name, label: ms[i].name, lat: ms[i].lat, lon: ms[i].lon, towards: '', distance: 0, lines: [], detail: false });
+        }
+        if (!ids.length) {
+          var alt = last ? '' : expandAbbrev(nm);
+          if (alt && alt.toLowerCase() !== nm.toLowerCase()) { byName(alt, true); return; }
+          done([]); return;
+        }
+        getJSON('/StopPoint/' + ids.join(','),
+          function (res) { var items = searchItems(toArray(res)); finish(items.length ? items : basics); },
+          function () { done(basics); });
+      },
+      fail);
+  };
+
+  if (/^\d{5}$/.test(text)) {          // a five-digit stop code, as printed on the bus stop sign
+    getJSON('/StopPoint/Sms/' + text,
+      function (res) { var items = searchItems(toArray(res)); if (items.length) { finish(items); } else { byName(name); } },
+      function () { byName(name); });
+  } else { byName(name); }
+}
+
+function runSearch(v) {
+  var my = ++searchSeq;
+  searchState = { q: v, busy: true, items: null, msg: '' };
+  renderOverlay();
+  searchStops(v,
+    function (items) { if (my !== searchSeq) { return; } searchState = { q: v, busy: false, items: items, msg: '' }; renderOverlay(); },
+    function (msg) { if (my !== searchSeq) { return; } searchState = { q: v, busy: false, items: null, msg: msg }; renderOverlay(); });
+}
+
+/* ---------- lists (search, nearby, recents) ---------- */
+
+function stopRow(item, withDistance, from) {
+  var li = el('li', 'row go');
+  var icon = el('div', 'sicon'); icon.innerHTML = BUS_SVG;
+  var body = el('div', 'rbody');
+  body.appendChild(el('div', 'rt', item.label));
+  if (item.towards) { body.appendChild(el('div', 'rs', 'Towards ' + item.towards)); }
+  if (item.lines && item.lines.length) {
+    var chips = el('div', 'chips'), n = Math.min(item.lines.length, 6);
+    for (var i = 0; i < n; i++) { chips.appendChild(el('span', 'chip', item.lines[i])); }
+    body.appendChild(chips);
+  }
+  li.appendChild(icon); li.appendChild(body);
+  if (withDistance && item.distance) { li.appendChild(el('div', 'rd', Math.round(item.distance) + ' m')); }
+  li.onclick = function () { openStop(item, from); };
+  return li;
+}
+
+function stopList(items, withDistance, from) {
+  var ul = el('ul', 'tbl');
+  for (var i = 0; i < items.length; i++) { ul.appendChild(stopRow(items[i], withDistance, from)); }
+  return ul;
+}
+
+function secHead(text, linkText, linkFn) {
+  var h = el('div', 'sec', text);
+  if (linkText) {
+    var b = el('button', 'seclink', linkText); b.type = 'button'; b.onclick = linkFn;
+    h.appendChild(b);
+  }
+  return h;
+}
+
+function renderOverlay() {
+  if (!overlayOn) { return; }
+  var list = $('olist'), keep = $('overlay').scrollTop;
+  clearNode(list);
+  var v = trimmed(q.value);
+  if (v.length >= 3) {
+    if (searchState.busy || searchState.q !== v) { list.appendChild(el('div', 'note', 'Searching\u2026')); return; }
+    if (searchState.msg) { list.appendChild(el('div', 'note err', searchState.msg)); return; }
+    var items = searchState.items || [];
+    if (!items.length) { list.appendChild(el('div', 'note', 'No bus stops found for \u201C' + v + '\u201D.')); return; }
+    if (items.length >= MAX_RESULTS) { list.appendChild(el('div', 'note', 'Showing the first ' + MAX_RESULTS + ' stops. Add the stop letter to narrow it down, for example \u201C' + v.replace(/\s+stop\s+\w+$/i, '') + ' stop D\u201D.')); }
+    list.appendChild(stopList(items, false, 'overlay'));
+    return;
+  }
+  list.appendChild(secHead('Nearby'));
+  if (homeLoading && !homeItems.length) { list.appendChild(el('div', 'note', homeNote || 'Finding stops\u2026')); }
+  else {
+    if (homeNote) { list.appendChild(el('div', 'note', homeNote)); }
+    if (homeItems.length) { list.appendChild(stopList(homeItems.slice(0, 10), true, 'overlay')); }
+  }
+  if (recents.length) {
+    list.appendChild(secHead('Recents', 'Clear', function () { recents = []; saveRecents(); renderOverlay(); }));
+    list.appendChild(stopList(recents, false, 'overlay'));
+  }
+  $('overlay').scrollTop = keep;
+}
+
+function setSearchMode(on) {
+  $('cancel').style.display = on ? 'block' : 'none';
+  $('nearBtn').style.display = on ? 'none' : 'block';
+  overlayOn = on;
+  $('overlay').style.display = on ? 'block' : 'none';
+  document.body.className = document.body.className.replace(/\s*\bov\b/g, '') + (on ? ' ov' : '');
+  if (on) { $('areaBtn').style.display = 'none'; renderOverlay(); }
+}
+
+/* ---------- screens that slide over the map ---------- */
+
+function clearScreenTimer() { if (screenTimer) { clearInterval(screenTimer); screenTimer = null; } }
+
+function showScreen() {
+  var s = curScreen();
+  clearScreenTimer();
+  if (!s) { $('screen').style.display = 'none'; return; }
+  $('screen').style.display = 'block';
+  $('ntitle').textContent = s.type === 'stop' ? 'Bus stop' : (s.type === 'bus' ? 'Bus' : 'Info');
+  $('back').textContent = stack.length > 1 ? 'Back' : (s.from === 'overlay' ? 'Search' : 'Map');
+  var body = $('sbody');
+  clearNode(body);
+  body.scrollTop = 0;
+  if (s.type === 'stop') { buildStopScreen(s, body); }
+  else if (s.type === 'bus') { buildBusScreen(s, body); }
+  else { buildInfoScreen(s, body); }
+}
+
+function pushScreen(s) { stack.push(s); showScreen(); }
+
+function popScreen() {
+  stack.pop();
+  showScreen();
+  if (!stack.length) { removeSelected(); }
+}
+
+function openStop(item, from) {
+  if (map) { map.closePopup(); }
+  q.blur();
+  pushScreen({ type: 'stop', item: item, from: from || 'map' });
+}
+
+function endBody(body) { body.appendChild(el('div', 'spacer')); }
+
+/* ----- a bus stop ----- */
+
+function fillVeh(reg, fleetEl) {
+  lookupVehicle(reg, function (rec) { if (rec.ok) { fleetEl.textContent = rec.fleet; } });
+}
+
+function buildStopScreen(s, body) {
+  var item = s.item;
+  var hdr = el('div', 'hdr');
+  s.titleEl = el('h1', 'hname', item.label);
+  s.subEl = el('div', 'hsub', item.towards ? 'Towards ' + item.towards : '');
+  s.subEl.style.display = item.towards ? 'block' : 'none';
+  hdr.appendChild(s.titleEl); hdr.appendChild(s.subEl);
+  body.appendChild(hdr);
+  body.appendChild(el('div', 'sec2', 'Next buses'));
+  s.note = el('div', 'note', 'Loading arrivals\u2026'); body.appendChild(s.note);
+  s.list = el('ul', 'tbl'); s.list.style.display = 'none'; body.appendChild(s.list);
+  s.sched = el('div', 'sched'); s.sched.style.display = 'none'; body.appendChild(s.sched);
+  s.upd = el('div', 'upd'); body.appendChild(s.upd);
+  endBody(body);
+
+  addRecent(item);
+  setSelected(item.lat, item.lon);
+  if (map && item.lat !== undefined) {
+    map.setView([item.lat, item.lon], Math.max(map.getZoom(), 16));
+    if (s.from !== 'map') { loadNearby(item.lat, item.lon); }
+  }
+  if (!item.detail) { fetchDetail(s); }
+  loadStopArrivals(s);
+  screenTimer = setInterval(function () { loadStopArrivals(s); }, REFRESH_MS);
+}
+
+function fetchDetail(s) {
+  var item = s.item;
+  getJSON('/StopPoint/' + encodeURIComponent(item.id), function (res) {
+    var sp = toArray(res)[0];
+    if (!sp || !sp.commonName) { return; }
+    var d = normalize(sp);
+    item.label = d.label; item.towards = d.towards || item.towards; item.lines = d.lines; item.detail = true;
+    if (item.lat === undefined) { item.lat = d.lat; item.lon = d.lon; }
+    var leaves = [], li;
+    leafStops(sp, leaves);
+    if (sp.children && sp.children.length && leaves.length) {      // a whole station: watch every stop inside it
+      item.kids = [];
+      for (li = 0; li < leaves.length; li++) { var kd = normalize(leaves[li]); item.kids.push({ id: kd.id, letter: kd.letter }); }
+      if (curScreen() === s) { loadStopArrivals(s); }
+    }
+    addRecent(item);
+    if (curScreen() === s && s.titleEl) {
+      s.titleEl.textContent = item.label;
+      if (item.towards) { s.subEl.textContent = 'Towards ' + item.towards; s.subEl.style.display = 'block'; }
+    }
+  }, function () {});
+}
+
+function loadStopArrivals(s) {
+  if (curScreen() !== s || document.hidden) { return; }
+  var item = s.item;
+  var show = function (data) { if (curScreen() === s) { renderStopArrivals(s, data); } };
+  var fail = function (msg) { if (curScreen() === s) { s.note.style.display = 'block'; s.note.textContent = msg; s.note.className = 'note err'; } };
+  if (item.kids && item.kids.length) { arrivalsForKids(item, show, fail); return; }
+  getJSON('/StopPoint/' + encodeURIComponent(item.id) + '/Arrivals',
+    function (data) { if (data.length) { show(data); } else { arrivalsByLine(item, show); } },
+    fail);
+}
+
+function renderStopArrivals(s, data) {
+  clearNode(s.list);
+  data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+  if (!data.length) {
+    s.list.style.display = 'none';
+    s.note.style.display = 'block'; s.note.className = 'note'; s.note.textContent = 'No buses due at this stop right now.';
+    loadSched(s);
+  } else {
+    s.sched.style.display = 'none';
+    s.note.style.display = 'none';
+    var now = new Date().getTime(), i;
+    for (i = 0; i < data.length; i++) {
+      var a = data[i], mins = Math.floor(a.timeToStation / 60), when = new Date(now + a.timeToStation * 1000);
+      var li = el('li', 'row arr' + (a.vehicleId ? ' go' : ''));
+      if (a.vehicleId) { li.onclick = (function (arrival, st) { return function () { pushScreen({ type: 'bus', arr: arrival, item: st.item, from: 'stop' }); }; })(a, s); }
+      li.appendChild(el('div', 'badge', a.lineName));
+      var mid = el('div', 'rbody');
+      mid.appendChild(el('div', 'rt', a.destinationName || a.towards || ''));
+      if (s.item.kids && s.item.kids.length && a.platformName) { mid.appendChild(el('div', 'rs', 'Stop ' + a.platformName)); }
+      var reg = String(a.vehicleId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (i < 8 && reg.length >= 2 && reg.length <= 8) {
+        var veh = el('div', 'veh'), fleetEl = el('span', 'vfleet');
+        veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
+        mid.appendChild(veh);
+        fillVeh(reg, fleetEl);
+      }
+      li.appendChild(mid);
+      var col = el('div', 'mcol');
+      col.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
+      col.appendChild(el('div', 'clock', two(when.getHours()) + ':' + two(when.getMinutes())));
+      li.appendChild(col);
+      s.list.appendChild(li);
+    }
+    s.list.style.display = 'block';
+  }
+  var d = new Date();
+  s.upd.textContent = 'Updated ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds()) + '. Refreshes every ' + (REFRESH_MS / 1000) + ' seconds. Fleet details from bustimes.org.';
+}
+
+/* ----- timetable, when no buses are due ----- */
+
+function schedNote(s, text) {
+  clearNode(s.sched);
+  s.sched.style.display = 'block';
+  s.sched.appendChild(el('div', 'sec2', 'Scheduled departures'));
+  s.sched.appendChild(el('div', 'note', text));
+}
+
+function showSched(s) {
+  var item = s.item, res = buildSchedule(item.ttRaw), i, li, body, ul;
+  clearNode(s.sched);
+  s.sched.style.display = 'block';
+  s.sched.appendChild(el('div', 'sec2', 'Scheduled departures'));
+  if (!res.times.length && !res.freqs.length) { s.sched.appendChild(el('div', 'note', 'No more scheduled departures found for this stop today.')); return; }
+  s.sched.appendChild(el('div', 'snote', 'From the timetable, not live tracking.'));
+  if (res.times.length) {
+    ul = el('ul', 'tbl');
+    for (i = 0; i < res.times.length; i++) {
+      li = el('li', 'row arr srow');
+      li.appendChild(el('div', 'badge', res.times[i].line));
+      body = el('div', 'rbody');
+      body.appendChild(el('div', 'rt', fmtTime(res.times[i].abs % 1440)));
+      if (res.times[i].abs >= 1440) { body.appendChild(el('div', 'rs', 'Tomorrow')); }
+      li.appendChild(body); ul.appendChild(li);
+    }
+    s.sched.appendChild(ul);
+  }
+  if (res.freqs.length) {
+    ul = el('ul', 'tbl'); ul.style.marginTop = '10px';
+    for (i = 0; i < res.freqs.length; i++) {
+      var f = res.freqs[i];
+      li = el('li', 'row arr');
+      li.appendChild(el('div', 'badge', f.line));
+      body = el('div', 'rbody');
+      body.appendChild(el('div', 'rt', 'Every ' + ((f.lo === f.hi || f.hi === undefined) ? f.lo : f.lo + '\u2013' + f.hi) + ' min'));
+      body.appendChild(el('div', 'rs', fmtTime(f.from) + ' to ' + fmtTime(f.to)));
+      li.appendChild(body); ul.appendChild(li);
+    }
+    s.sched.appendChild(ul);
+  }
+}
+
+function loadSched(s) {
+  var item = s.item;
+  if (item.ttRaw) { showSched(s); return; }
+  if (item.schedBusy) { return; }
+  if (item.schedFail && new Date().getTime() - item.schedFail < 600000) { schedNote(s, 'No timetable is available for this stop.'); return; }
+  item.schedBusy = true;
+  schedNote(s, 'Looking up the timetable\u2026');
+  ensureLines(item, function () {
+    var names = (item.lines || []).slice(0, 8), pending = names.length, got = [];
+    var finish = function () {
+      item.schedBusy = false;
+      if (got.length) { item.ttRaw = got; } else { item.schedFail = new Date().getTime(); }
+      if (curScreen() !== s) { return; }
+      if (got.length) { showSched(s); } else { schedNote(s, 'No timetable is available for this stop.'); }
+    };
+    if (!pending) { finish(); return; }
+    for (var i = 0; i < names.length; i++) {
+      (function (name) {
+        getJSON('/Line/' + encodeURIComponent(name.toLowerCase()) + '/Timetable/' + encodeURIComponent(item.id),
+          function (tt) { got.push({ line: name, tt: tt }); pending--; if (!pending) { finish(); } },
+          function () { pending--; if (!pending) { finish(); } });
+      })(names[i]);
+    }
+  });
+}
+
+/* ----- one bus: where it goes next ----- */
+
+function buildBusScreen(s, body) {
+  var a = s.arr;
+  var hdr = el('div', 'hdr');
+  hdr.appendChild(el('h1', 'hname', a.lineName + ' to ' + (a.destinationName || a.towards || '')));
+  var reg = String(a.vehicleId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (reg.length >= 2 && reg.length <= 8) {
+    var veh = el('div', 'veh'), fleetEl = el('span', 'vfleet');
+    veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
+    hdr.appendChild(veh);
+    fillVeh(reg, fleetEl);
+  }
+  body.appendChild(hdr);
+  body.appendChild(el('div', 'sec2', 'Next stops'));
+  s.note = el('div', 'note', 'Loading predictions\u2026'); body.appendChild(s.note);
+  s.list = el('ul', 'tbl'); s.list.style.display = 'none'; body.appendChild(s.list);
+  s.upd = el('div', 'upd'); body.appendChild(s.upd);
+  endBody(body);
+  loadBusStops(s);
+  screenTimer = setInterval(function () { loadBusStops(s); }, 20000);
+}
+
+function loadBusStops(s) {
+  if (curScreen() !== s || document.hidden) { return; }
+  getJSON('/Vehicle/' + encodeURIComponent(s.arr.vehicleId) + '/Arrivals',
+    function (data) { if (curScreen() === s) { renderBusStops(s, toArray(data)); } },
+    function (msg) { if (curScreen() === s) { s.note.style.display = 'block'; s.note.textContent = msg; s.note.className = 'note err'; } });
+}
+
+function renderBusStops(s, data) {
+  var keep = [], i;
+  for (i = 0; i < data.length; i++) { if (data[i] && data[i].timeToStation !== undefined) { keep.push(data[i]); } }
+  data = keep;
+  data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+  clearNode(s.list);
+  if (!data.length) {
+    s.list.style.display = 'none';
+    s.note.style.display = 'block'; s.note.className = 'note';
+    s.note.textContent = 'No predictions for this bus right now. It may have finished its journey or not started yet.';
+  } else {
+    s.note.style.display = 'none';
+    var now = new Date().getTime(), n = Math.min(data.length, 30);
+    for (i = 0; i < n; i++) {
+      var d = data[i], mins = Math.floor(d.timeToStation / 60), when = new Date(now + d.timeToStation * 1000);
+      var here = s.item && d.naptanId === s.item.id;
+      var name = (d.stationName || 'Bus stop') + ((d.platformName && d.platformName !== 'null') ? ' (Stop ' + String(d.platformName).replace(/^stop\s+/i, '') + ')' : '');
+      var li = el('li', 'row arr nob' + (here ? ' here' : ''));
+      var mid = el('div', 'rbody');
+      mid.appendChild(el('div', 'rt', name));
+      if (here) { mid.appendChild(el('div', 'rs', 'The stop you are looking at')); }
+      li.appendChild(mid);
+      var col = el('div', 'mcol');
+      col.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
+      col.appendChild(el('div', 'clock', two(when.getHours()) + ':' + two(when.getMinutes())));
+      li.appendChild(col);
+      s.list.appendChild(li);
+    }
+    s.list.style.display = 'block';
+  }
+  var t = new Date();
+  s.upd.textContent = 'Predicted times, updated ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ':' + two(t.getSeconds()) + '.';
+}
+
+/* ----- info ----- */
+
+function infoRow(title, sub, fn) {
+  var li = el('li', 'row nob' + (fn ? ' go' : ''));
+  var b = el('div', 'rbody');
+  b.appendChild(el('div', 'rt', title));
+  if (sub) { b.appendChild(el('div', 'rs', sub)); }
+  li.appendChild(b);
+  if (fn) { li.onclick = fn; }
+  return li;
+}
+
+function buildInfoScreen(s, body) {
+  var hdr = el('div', 'hdr');
+  hdr.appendChild(el('h1', 'hname', 'London buses'));
+  hdr.appendChild(el('div', 'hsub', 'Live bus times for older iPhones and iPads'));
+  body.appendChild(hdr);
+  body.appendChild(el('div', 'sec2', 'Actions'));
+  var ul = el('ul', 'tbl');
+  ul.appendChild(infoRow('Clear recent stops', '', function () { recents = []; saveRecents(); this.getElementsByTagName('div')[1].textContent = 'Cleared'; }));
+  ul.appendChild(infoRow('Refresh nearby stops', '', function () { popScreen(); nearbyCache = {}; locate(false); }));
+  body.appendChild(ul);
+  body.appendChild(el('div', 'sec2', 'Data'));
+  var u2 = el('ul', 'tbl');
+  u2.appendChild(infoRow('Bus times', 'Transport for London'));
+  u2.appendChild(infoRow('Map', '\u00A9 OpenStreetMap contributors'));
+  u2.appendChild(infoRow('Fleet numbers', 'bustimes.org'));
+  body.appendChild(u2);
+  endBody(body);
+}
+
+/* ---------- buttons and start ---------- */
+
+q.onfocus = function () { setSearchMode(true); };
+q.oninput = function () {
+  var v = trimmed(q.value);
+  $('clear').style.display = q.value ? 'block' : 'none';
+  if (searchTimer) { clearTimeout(searchTimer); }
+  searchSeq++;
+  if (v.length < 3) { searchState = { q: '', busy: false, items: null, msg: '' }; renderOverlay(); return; }
+  searchState = { q: v, busy: true, items: null, msg: '' };
+  renderOverlay();
+  searchTimer = setTimeout(function () { runSearch(v); }, 600);
+};
+q.onkeydown = function (e) {
+  e = e || window.event;
+  if (e.keyCode === 13) {
+    var v = trimmed(q.value);
+    if (searchTimer) { clearTimeout(searchTimer); }
+    if (v.length >= 2) { runSearch(v); }
+    q.blur();
+  }
+};
+$('clear').onclick = function () { q.value = ''; $('clear').style.display = 'none'; searchSeq++; searchState = { q: '', busy: false, items: null, msg: '' }; renderOverlay(); q.focus(); };
+$('cancel').onclick = function () {
+  q.value = ''; q.blur(); searchSeq++;
+  searchState = { q: '', busy: false, items: null, msg: '' };
+  $('clear').style.display = 'none';
+  setSearchMode(false);
+};
+$('nearBtn').onclick = function () { setSearchMode(true); };
+$('locate').onclick = function () { $('areaBtn').style.display = 'none'; if (overlayOn) { $('cancel').onclick(); } locate(false); };
+$('infoBtn').onclick = function () { pushScreen({ type: 'info', from: 'map' }); };
+$('back').onclick = function () { popScreen(); };
+$('mapWarn').onclick = function () { $('mapWarn').style.display = 'none'; };
+$('areaBtn').onclick = function () {
+  $('areaBtn').style.display = 'none';
+  if (!map) { return; }
+  stickyNote = '';
+  var c = map.getCenter();
+  loadNearby(c.lat, c.lng);
+};
+window.onresize = function () { if (map) { map.invalidateSize(); } };
+window.onorientationchange = function () { setTimeout(function () { if (map) { map.invalidateSize(); } }, 300); };
+document.addEventListener('visibilitychange', function () { var s = curScreen(); if (!document.hidden && s) { if (s.type === 'stop') { loadStopArrivals(s); } else if (s.type === 'bus') { loadBusStops(s); } } }, false);
+
+initMap();
+locate(true);
+
+</script>
+</body>
+</html>
