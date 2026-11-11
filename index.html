@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>ZK's London Bus Tracker</title>
+<script>
+// Older iPhones/iPads get the edition built for them (add ?stay=1 to the address to stay on this one)
+(function () {
+  try {
+    if (location.search.indexOf('stay=1') !== -1) { return; }
+    var ua = navigator.userAgent, m = ua.match(/OS (\d+)_/);
+    if (!m || !/iPhone|iPad|iPod/.test(ua)) { return; }
+    var v = parseInt(m[1], 10);
+    if (v <= 6) { location.replace('ios6/'); } else if (v <= 10) { location.replace('legacy/'); }
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
   * { -webkit-box-sizing: border-box; box-sizing: border-box; }
@@ -79,7 +91,9 @@
           background: rgba(118,118,128,.2); color: #6e6e73; font-size: 19px; line-height: 30px; }
   .arr .badge { -webkit-flex: none; flex: none; min-width: 48px; margin-right: 12px; padding: 5px 7px; border-radius: 6px;
                 background: #dc241f; color: #fff; font-size: 17px; font-weight: 700; text-align: center; }
-  .arr .mins { -webkit-flex: none; flex: none; margin-left: 10px; font-size: 20px; font-weight: 700; text-align: right; }
+  .arr .mcol { -webkit-flex: none; flex: none; margin-left: 10px; text-align: right; }
+  .arr .mins { font-size: 20px; font-weight: 700; }
+  .clock { margin-top: 1px; font-size: 13px; color: #6e6e73; }
   .upd { margin: 10px 2px; font-size: 12px; color: #6e6e73; }
 
   .veh { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; -webkit-align-items: center; align-items: center; margin-top: 5px; }
@@ -88,6 +102,7 @@
   .vfleet { padding: 1px 6px; border-radius: 4px; background: #1c1c1e; color: #fff; font-size: 12px; font-weight: 700; }
   .plate { padding: 1px 6px; border: 1px solid rgba(0,0,0,.4); border-radius: 3px; background: #f7d117; color: #000; font-size: 12px; font-weight: 700; letter-spacing: .6px; }
 
+  .row.here { background: rgba(10,132,255,.12); }
   .stitle { margin: 18px 2px 4px; font-size: 17px; font-weight: 700; }
   .snote { margin: 0 2px 8px; font-size: 13px; color: #6e6e73; }
   .srow .rt { font-size: 20px; }
@@ -127,7 +142,7 @@
   .dark .note.err { color: #ff6961; }
   .dark .vfleet { background: #e5e5ea; color: #000; }
   .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip { background: #2c2c2e; color: #fff; }
-  .dark .pnote, .dark .snote { color: #98989f; }
+  .dark .pnote, .dark .snote, .dark .clock { color: #98989f; }
   .dark .pnote.err { color: #ff6961; }
 </style>
 </head>
@@ -164,10 +179,11 @@
 
 /* ===== Settings you can change ===== */
 var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
-var REFRESH_MS = 30000;        // arrivals refresh (milliseconds)
+var REFRESH_MS = 20000;        // arrivals refresh (milliseconds)
 var NEARBY_RADIUS = 400;       // metres
 var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';   // or API_BASE + '/tile/{z}/{x}/{y}.png' to go through your Worker
-var MAX_DOTS = 40;             // most stop pins drawn on the map
+var MAX_DOTS = 40;
+var MAX_RESULTS = 40;          // most stops listed for one search             // most stop pins drawn on the map
 var START_VIEW = [51.5074, -0.1278];   // used if location is unavailable (central London)
 var TOP_GAP = 56;              // map left visible above the sheet when fully open (px)
 var PEEK = 88;                 // sheet height when collapsed (px)
@@ -205,16 +221,20 @@ function getJSON(path, onOk, onFail, tries) {
     if (xhr.status >= 200 && xhr.status < 300) {
       var data;
       try { data = JSON.parse(xhr.responseText); }
-      catch (e) { onFail('Could not read the response from TfL.'); return; }
+      catch (e) { onFail('Could not read the response from TfL.', 0); return; }
       onOk(data);
     } else if (xhr.status === 429) {
       if (tries < 2) {   // wait a moment and try again before giving up
         setTimeout(function () { getJSON(path, onOk, onFail, tries + 1); }, 2000 * (tries + 1));
         return;
       }
-      onFail('TfL is limiting requests right now. Wait a few seconds and try again.');
+      onFail('TfL is limiting requests right now. Wait a few seconds and try again.', 429);
+    } else if (xhr.status === 0) {
+      onFail('Could not connect. Check your internet connection.', 0);
     } else {
-      onFail('Could not reach TfL (status ' + xhr.status + ').');
+      var detail = '';
+      try { var j = JSON.parse(xhr.responseText); if (j && j.message) { detail = ' ' + String(j.message).slice(0, 140); } } catch (e) {}
+      onFail('TfL did not accept that request (status ' + xhr.status + ').' + detail, xhr.status);
     }
   };
   xhr.send();
@@ -235,10 +255,38 @@ function normalize(sp) {
     label: sp.commonName + (sp.indicator ? ' (' + sp.indicator + ')' : ''),   // e.g. Golders Green Station (Stop A)
     lat: sp.lat, lon: sp.lon,
     towards: towards,
+    letter: String(sp.stopLetter || sp.indicator || '').replace(/^stop\s+/i, '').toUpperCase(),
     distance: sp.distance || 0,
     lines: lines,
     detail: true
   };
+}
+
+// A search can return a whole station or interchange. Dig out the individual bus stops inside it.
+function isBusStop(sp) {
+  return sp.stopType === 'NaptanPublicBusCoachTfl' ||
+         (sp.modes && String(sp.modes).indexOf('bus') !== -1 && !(sp.children && sp.children.length));
+}
+function leafStops(sp, out) {
+  var kids = sp.children || [], i;
+  if (kids.length) { for (i = 0; i < kids.length; i++) { leafStops(kids[i], out); } }
+  else if (isBusStop(sp)) { out.push(sp); }
+}
+
+function distanceM(lat1, lon1, lat2, lon2) {
+  var rad = Math.PI / 180, dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+// "Hill Rd" -> "Hill Road", for when a search finds nothing
+function expandAbbrev(t) {
+  var m = { rd: 'road', ave: 'avenue', av: 'avenue', ln: 'lane', gdns: 'gardens', gdn: 'garden', stn: 'station', pl: 'place', sq: 'square',
+            cres: 'crescent', dr: 'drive', ct: 'court', pk: 'park', hosp: 'hospital', jct: 'junction', ter: 'terrace', gr: 'grove',
+            cl: 'close', hse: 'house', sch: 'school', ctr: 'centre', ctre: 'centre', univ: 'university', rbt: 'roundabout' };
+  var out = t.replace(/\b([A-Za-z]+)\.?(?=\s|$)/g, function (w, a) { return m[a.toLowerCase()] || w; });
+  out = out.replace(/^st\.?\s/i, 'saint ').replace(/\sst\.?$/i, ' street');
+  return out;
 }
 
 /* ---------- recents (search history) ---------- */
@@ -531,16 +579,54 @@ function applyNearby(items) {
   if (VIEW === 'home') { renderHome(); }
 }
 
+var nearbyTry = 0;      // which way of asking TfL worked last time
+
+function nearbyPaths(la, lo) {
+  var base = '/StopPoint?lat=' + la + '&lon=' + lo + '&radius=' + NEARBY_RADIUS;
+  var extra = '&modes=bus&returnLines=true&categories=Direction&useStopPointHierarchy=false';
+  return [
+    base + '&stopTypes=NaptanPublicBusCoachTram' + extra,
+    base + '&stopTypes=NaptanPublicBusCoachTfl' + extra,
+    base + '&stopTypes=NaptanPublicBusCoachTram',
+    base + '&stopTypes=NaptanPublicBusCoachTfl',
+    base + '&stopTypes=NaptanOnstreetBusCoachStopPair' + extra
+  ];
+}
+
+function fetchNearby(la, lo, ok, fail) {
+  var paths = nearbyPaths(la, lo), tried = 0, lastMsg = '';
+  var attempt = function () {
+    if (tried >= paths.length) { fail(lastMsg); return; }
+    var idx = (nearbyTry + tried) % paths.length;
+    getJSON(paths[idx],
+      function (data) { nearbyTry = idx; ok(data); },
+      function (msg, status) {
+        lastMsg = msg;
+        if (status === 400 || status === 404) { tried++; attempt(); } else { fail(msg); }
+      });
+  };
+  attempt();
+}
+
 function loadNearby(lat, lon) {
-  lat = Number(lat).toFixed(3); lon = Number(lon).toFixed(3);   // rounding lets repeat searches reuse saved results
-  var key = lat + ',' + lon, hit = nearbyCache[key];
+  var lat0 = Number(lat), lon0 = Number(lon);
+  var la = lat0.toFixed(3), lo = lon0.toFixed(3);   // TfL only uses three decimals, so repeat searches can reuse saved results
+  var key = la + ',' + lo, hit = nearbyCache[key];
   if (hit && new Date().getTime() - hit.t < 300000) { applyNearby(hit.items); return; }
   homeLoading = true; homeNote = '';
   if (VIEW === 'home') { renderHome(); }
-  getJSON('/StopPoint?lat=' + lat + '&lon=' + lon + '&stopTypes=NaptanPublicBusCoachTfl&radius=' + NEARBY_RADIUS,
+  fetchNearby(la, lo,
     function (data) {
-      var stops = data.stopPoints || [], items = [], i;
-      for (i = 0; i < stops.length; i++) { items.push(normalize(stops[i])); }
+      var stops = data.stopPoints || [], leaves = [], items = [], seen = {}, i, it;
+      for (i = 0; i < stops.length; i++) { leafStops(stops[i], leaves); }
+      for (i = 0; i < leaves.length; i++) {
+        it = normalize(leaves[i]);
+        if (!it.id || seen[it.id] || it.lat === undefined) { continue; }
+        seen[it.id] = true;
+        it.distance = distanceM(lat0, lon0, it.lat, it.lon);
+        it.detail = !!(leaves[i].additionalProperties && leaves[i].additionalProperties.length);
+        if (it.distance <= NEARBY_RADIUS + 150) { items.push(it); }
+      }
       items.sort(function (a, b) { return a.distance - b.distance; });
       nearbyCache[key] = { t: new Date().getTime(), items: items };
       applyNearby(items);
@@ -618,6 +704,7 @@ function stopCard(items, withDistance) {
 
 function leaveStop() {
   if (timer) { clearInterval(timer); timer = null; }
+  if (busTimer) { clearInterval(busTimer); busTimer = null; }
   currentStop = null;
   removeSelected();
 }
@@ -652,6 +739,9 @@ function renderResults() {
   if (!r || !r.items.length) {
     content.appendChild(el('div', 'note', 'No bus stops found' + (r ? ' for \u201C' + r.q + '\u201D' : '') + '.'));
   } else {
+    if (r.items.length >= MAX_RESULTS) {
+      content.appendChild(el('div', 'note', 'Showing the first ' + MAX_RESULTS + ' stops. Add the stop letter to narrow it down, for example \u201C' + r.q.replace(/\s+stop\s+\w+$/i, '') + ' stop D\u201D.'));
+    }
     content.appendChild(stopCard(r.items, false));
   }
   endContent();
@@ -661,32 +751,69 @@ function renderResults() {
 
 var searchCache = {};
 
+function searchItems(arr) {
+  var leaves = [], items = [], seen = {}, i, it;
+  for (i = 0; i < arr.length; i++) { if (arr[i]) { leafStops(arr[i], leaves); } }
+  for (i = 0; i < leaves.length; i++) {
+    it = normalize(leaves[i]);
+    if (!it.id || seen[it.id]) { continue; }
+    seen[it.id] = true;
+    it.detail = !!(leaves[i].additionalProperties && leaves[i].additionalProperties.length);   // children often lack "Towards"
+    items.push(it);
+  }
+  return items;
+}
+
 function doSearch(text) {
   var key = text.toLowerCase();
   var my = ++searchSeq;
   if (searchCache[key]) { finishSearch(searchCache[key], text); return; }
   setMsgOnly('Searching\u2026');
-  getJSON('/StopPoint/Search?query=' + encodeURIComponent(text) + '&modes=bus&maxResults=15',
-    function (data) {
-      if (my !== searchSeq) { return; }
-      var m = data.matches || [], ids = [], seen = {}, basics = [], i;
-      for (i = 0; i < m.length; i++) {
-        if (seen[m[i].id]) { continue; }
-        seen[m[i].id] = true; ids.push(encodeURIComponent(m[i].id));
-        basics.push({ id: m[i].id, name: m[i].name, label: m[i].name, lat: m[i].lat, lon: m[i].lon, towards: '', distance: 0, lines: [], detail: false });
-      }
-      if (!ids.length) { finishSearch([], text); return; }
-      getJSON('/StopPoint/' + ids.join(','),
-        function (res) {
-          if (my !== searchSeq) { return; }
-          var arr = toArray(res), items = [], k;
-          for (k = 0; k < arr.length; k++) { if (arr[k] && arr[k].commonName) { items.push(normalize(arr[k])); } }
-          if (items.length) { searchCache[key] = items; }
-          finishSearch(items.length ? items : basics, text);
-        },
-        function () { if (my === searchSeq) { finishSearch(basics, text); } });
-    },
-    function (msg) { if (my === searchSeq) { setMsgOnly(msg, true); } });
+
+  var name = text, letter = '', lm = text.match(/^(.*\S)\s+stop\s+([a-z0-9]{1,2})$/i);   // "king's cross stop d"
+  if (lm) { name = lm[1]; letter = lm[2].toUpperCase(); }
+
+  var byName = function (nm, last) {
+    getJSON('/StopPoint/Search?query=' + encodeURIComponent(nm) + '&modes=bus&maxResults=' + MAX_RESULTS,
+      function (data) {
+        if (my !== searchSeq) { return; }
+        var ms = data.matches || [], ids = [], seen = {}, basics = [], i;
+        for (i = 0; i < ms.length; i++) {
+          if (seen[ms[i].id]) { continue; }
+          seen[ms[i].id] = true; ids.push(encodeURIComponent(ms[i].id));
+          basics.push({ id: ms[i].id, name: ms[i].name, label: ms[i].name, lat: ms[i].lat, lon: ms[i].lon, towards: '', distance: 0, lines: [], detail: false });
+        }
+        if (!ids.length) {
+          var alt = last ? '' : expandAbbrev(nm);
+          if (alt && alt.toLowerCase() !== nm.toLowerCase()) { byName(alt, true); return; }
+          finishSearch([], text); return;
+        }
+        getJSON('/StopPoint/' + ids.join(','),
+          function (res) {
+            if (my !== searchSeq) { return; }
+            var items = searchItems(toArray(res)), k, f = [];
+            if (letter) {
+              for (k = 0; k < items.length; k++) { if (items[k].letter === letter) { f.push(items[k]); } }
+              if (f.length) { items = f; }
+            }
+            items = items.slice(0, MAX_RESULTS);
+            if (items.length) { searchCache[key] = items; }
+            finishSearch(items.length ? items : basics, text);
+          },
+          function () { if (my === searchSeq) { finishSearch(basics, text); } });
+      },
+      function (msg) { if (my === searchSeq) { setMsgOnly(msg, true); } });
+  };
+
+  if (/^\d{5}$/.test(text)) {          // a five-digit stop code, as printed on the bus stop sign
+    getJSON('/StopPoint/Sms/' + text,
+      function (res) {
+        if (my !== searchSeq) { return; }
+        var items = searchItems(toArray(res));
+        if (items.length) { searchCache[key] = items; finishSearch(items, text); } else { byName(name); }
+      },
+      function () { if (my === searchSeq) { byName(name); } });
+  } else { byName(name); }
 }
 
 function finishSearch(items, text) {
@@ -944,9 +1071,10 @@ function loadSchedule(item) {
 /* ---------- stop view ---------- */
 
 var arrListEl = null, updEl = null, titleEl = null, subEl = null;
+var busTimer = null, busCtx = null;
 
-function openStop(item, fromMap) {
-  if (VIEW !== 'stop') { backView = VIEW; }
+function openStop(item, fromMap, keepBack) {
+  if (VIEW !== 'stop' && !keepBack) { backView = VIEW; }
   leaveStop();
   VIEW = 'stop';
   currentStop = item;
@@ -990,6 +1118,13 @@ function fetchDetail(item) {
     var d = normalize(sp);
     item.label = d.label; item.towards = d.towards || item.towards; item.lines = d.lines; item.detail = true;
     if (item.lat === undefined) { item.lat = d.lat; item.lon = d.lon; }
+    var leaves = [], li;
+    leafStops(sp, leaves);
+    if (sp.children && sp.children.length && leaves.length) {      // this is a whole station: watch every stop inside it
+      item.kids = [];
+      for (li = 0; li < leaves.length; li++) { var kd = normalize(leaves[li]); item.kids.push({ id: kd.id, letter: kd.letter }); }
+      if (currentStop === item) { loadArrivals(); }
+    }
     addRecent(item);
     if (currentStop === item && titleEl) {
       titleEl.textContent = item.label;
@@ -1002,15 +1137,48 @@ function closeStop() {
   if (backView === 'results' && lastResults) { renderResults(); } else { renderHome(); }
 }
 
+function arrivalsFailed(mine, msg) {
+  if (currentStop !== mine) { return; }
+  var n = $('arrNote'); if (n) { n.style.display = 'block'; n.textContent = msg; n.className = 'note err'; }
+}
+
+// Whole station: ask each stop inside it and combine the answers
+function arrivalsForKids(mine, ok, fail) {
+  var kids = mine.kids.slice(0, 12), pending = kids.length, all = [], bad = 0;
+  var one = function (kid) {
+    getJSON('/StopPoint/' + encodeURIComponent(kid.id) + '/Arrivals',
+      function (d) {
+        for (var i = 0; i < d.length; i++) { if (!d[i].platformName || d[i].platformName === 'null') { d[i].platformName = kid.letter; } all.push(d[i]); }
+        if (--pending === 0) { ok(all); }
+      },
+      function () { bad++; if (--pending === 0) { if (bad === kids.length) { fail('Could not reach TfL.'); } else { ok(all); } } });
+  };
+  for (var i = 0; i < kids.length; i++) { one(kids[i]); }
+}
+
+// If a stop says nothing, ask by route instead
+function arrivalsByLine(mine, ok) {
+  ensureLines(mine, function () {
+    var names = (mine.lines || []).slice(0, 10), ids = [], i;
+    if (!names.length) { ok([]); return; }
+    for (i = 0; i < names.length; i++) { ids.push(encodeURIComponent(names[i].toLowerCase())); }
+    getJSON('/Line/' + ids.join(',') + '/Arrivals/' + encodeURIComponent(mine.id),
+      function (d) { ok(Object.prototype.toString.call(d) === '[object Array]' ? d : []); },
+      function () { ok([]); });
+  });
+}
+
 function loadArrivals() {
   if (!currentStop || document.hidden) { return; }
   var mine = currentStop;
+  var show = function (data) { if (currentStop === mine) { renderArrivals(data); } };
+  var fail = function (msg) { arrivalsFailed(mine, msg); };
+  if (mine.kids && mine.kids.length) { arrivalsForKids(mine, show, fail); return; }
   getJSON('/StopPoint/' + encodeURIComponent(mine.id) + '/Arrivals',
-    function (data) { if (currentStop === mine) { renderArrivals(data); } },
-    function (msg) {
-      if (currentStop !== mine) { return; }
-      var n = $('arrNote'); if (n) { n.style.display = 'block'; n.textContent = msg; n.className = 'note err'; }
-    });
+    function (data) {
+      if (data.length) { show(data); } else { arrivalsByLine(mine, show); }
+    },
+    fail);
 }
 
 function two(n) { return ('0' + n).slice(-2); }
@@ -1037,10 +1205,11 @@ function renderArrivals(data) {
       var a = data[i], mins = Math.floor(a.timeToStation / 60);
       var when = new Date(now + a.timeToStation * 1000);
       var li = el('li', 'row arr');
+      if (a.vehicleId) { li.onclick = (function (arrival, stopItem) { return function () { if (tapOK()) { openBus(arrival, stopItem); } }; })(a, currentStop); }
       li.appendChild(el('div', 'badge', a.lineName));
       var mid = el('div', 'rbody');
       mid.appendChild(el('div', 'rt', a.destinationName || a.towards || ''));
-      mid.appendChild(el('div', 'rs', two(when.getHours()) + ':' + two(when.getMinutes())));
+      if (currentStop && currentStop.kids && currentStop.kids.length && a.platformName) { mid.appendChild(el('div', 'rs', 'Stop ' + a.platformName)); }
       var reg = String(a.vehicleId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (i < 8 && reg.length >= 2 && reg.length <= 8) {
         var veh = el('div', 'veh');
@@ -1050,7 +1219,10 @@ function renderArrivals(data) {
         fillVeh(reg, fleetEl);
       }
       li.appendChild(mid);
-      li.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
+      var col = el('div', 'mcol');
+      col.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
+      col.appendChild(el('div', 'clock', two(when.getHours()) + ':' + two(when.getMinutes())));
+      li.appendChild(col);
       arrListEl.appendChild(li);
     }
     arrListEl.style.display = 'block';
@@ -1058,6 +1230,86 @@ function renderArrivals(data) {
   var d = new Date();
   updEl.textContent = 'Updated ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds()) +
                       '. Refreshes every ' + (REFRESH_MS / 1000) + ' seconds. Fleet details from bustimes.org.';
+}
+
+/* ---------- one bus: its next stops and when it gets there ---------- */
+
+function closeBus() {
+  var item = busCtx ? busCtx.item : null;
+  if (busTimer) { clearInterval(busTimer); busTimer = null; }
+  busCtx = null;
+  if (item) { openStop(item, true, true); } else { renderHome(); }
+}
+
+function openBus(arrival, item) {
+  leaveStop();
+  VIEW = 'bus';
+  busCtx = { arr: arrival, item: item };
+  if (map) { map.closePopup(); }
+  clearContent();
+  var th = el('div', 'thead'), tt = el('div', 'tt');
+  tt.appendChild(el('h1', 'tname', arrival.lineName + ' to ' + (arrival.destinationName || arrival.towards || '')));
+  var reg = String(arrival.vehicleId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (reg.length >= 2 && reg.length <= 8) {
+    var veh = el('div', 'veh'), fleetEl = el('span', 'vfleet');
+    veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
+    tt.appendChild(veh);
+    fillVeh(reg, fleetEl);
+  }
+  var x = el('button', 'xbtn', '\u00D7'); x.type = 'button'; x.setAttribute('aria-label', 'Back');
+  x.onclick = function () { closeBus(); };
+  th.appendChild(tt); th.appendChild(x); content.appendChild(th);
+  content.appendChild(el('div', 'stitle', 'Next stops')).id = 'busHead';
+  content.appendChild(el('div', 'note', 'Loading predictions\u2026')).id = 'busNote';
+  var ul = el('ul', 'card'); ul.id = 'busList'; ul.style.display = 'none'; content.appendChild(ul);
+  var upd = el('div', 'upd'); upd.id = 'busUpd'; content.appendChild(upd);
+  endContent();
+  setState(1, true);
+  loadBus();
+  busTimer = setInterval(loadBus, 20000);
+}
+
+function loadBus() {
+  var ctx = busCtx;
+  if (!ctx || document.hidden) { return; }
+  getJSON('/Vehicle/' + encodeURIComponent(ctx.arr.vehicleId) + '/Arrivals',
+    function (data) { if (busCtx === ctx) { renderBus(toArray(data), ctx); } },
+    function (msg) {
+      if (busCtx !== ctx) { return; }
+      var n = $('busNote'); if (n) { n.style.display = 'block'; n.textContent = msg; n.className = 'note err'; }
+    });
+}
+
+function renderBus(data, ctx) {
+  var ul = $('busList'), note = $('busNote'), upd = $('busUpd');
+  if (!ul) { return; }
+  clearNode(ul);
+  data = data.filter(function (d) { return d && d.timeToStation !== undefined; });
+  data.sort(function (a, b) { return a.timeToStation - b.timeToStation; });
+  if (!data.length) {
+    ul.style.display = 'none';
+    if (note) { note.style.display = 'block'; note.className = 'note'; note.textContent = 'No predictions for this bus right now. It may have finished its journey or not started yet.'; }
+  } else {
+    if (note) { note.style.display = 'none'; }
+    var now = new Date().getTime(), n = Math.min(data.length, 30), i;
+    for (i = 0; i < n; i++) {
+      var d = data[i], mins = Math.floor(d.timeToStation / 60), when = new Date(now + d.timeToStation * 1000);
+      var stopName = (d.stationName || 'Bus stop') + ((d.platformName && d.platformName !== 'null') ? ' (Stop ' + String(d.platformName).replace(/^stop\s+/i, '') + ')' : '');
+      var li = el('li', 'row arr' + ((ctx.item && d.naptanId === ctx.item.id) ? ' here' : ''));
+      var mid = el('div', 'rbody');
+      mid.appendChild(el('div', 'rt', stopName));
+      if (ctx.item && d.naptanId === ctx.item.id) { mid.appendChild(el('div', 'rs', 'The stop you are looking at')); }
+      li.appendChild(mid);
+      var col = el('div', 'mcol');
+      col.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
+      col.appendChild(el('div', 'clock', two(when.getHours()) + ':' + two(when.getMinutes())));
+      li.appendChild(col);
+      ul.appendChild(li);
+    }
+    ul.style.display = 'block';
+  }
+  var t = new Date();
+  upd.textContent = 'Predicted times, updated ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ':' + two(t.getSeconds()) + '.';
 }
 
 /* ---------- buttons, theme, start ---------- */
