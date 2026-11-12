@@ -297,6 +297,20 @@ function expandAbbrev(t) {
   return out;
 }
 
+// Other spellings to try when a search finds nothing: "kings cross" -> "king's cross", "hill rd" -> "hill road"
+
+function searchVariants(t) {
+  var out = [t], seen = {}, cand, i, v;
+  seen[t.toLowerCase()] = true;
+  var apo = t.replace(/\b([A-Za-z]{3,})s\b/g, function (w, a) { return /s$/i.test(a) ? w : a + "'s"; });
+  cand = [apo, t.replace(/['\u2019]/g, ''), expandAbbrev(t), expandAbbrev(apo)];
+  for (i = 0; i < cand.length; i++) {
+    v = cand[i];
+    if (v && !seen[v.toLowerCase()]) { seen[v.toLowerCase()] = true; out.push(v); }
+  }
+  return out;
+}
+
 function loadRecents() {
   try {
     var r = JSON.parse(localStorage.getItem('busRecents') || '[]');
@@ -556,7 +570,20 @@ function initMap() {
   var ok = 0, bad = 0;
   tiles.on('tileload', function () { ok++; });
   tiles.on('tileerror', function () { bad++; });
-  setTimeout(function () { if (!ok && bad) { $('mapWarn').style.display = 'block'; } }, 8000);
+  setTimeout(function () {
+    if (ok || !bad) { return; }
+    var w = $('mapWarn');
+    w.style.display = 'block';
+    var x = new XMLHttpRequest();          // ask the Worker for one map picture to find out why
+    x.open('GET', API_BASE + '/tile/0/0/0.png', true);
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) { return; }
+      var why = x.status === 404 ? ' Your Worker has no map-picture route yet: deploy the newest worker.mjs.' :
+                (x.status === 0 ? ' The device could not reach your Worker for pictures.' : ' (picture test: status ' + x.status + ')');
+      w.textContent = 'The map pictures could not load.' + why + ' Stops, search and times still work. Tap to hide.';
+    };
+    x.send();
+  }, 8000);
   attrib = L.control.attribution({ prefix: false, position: 'bottomright' });
   attrib.addAttribution('&copy; OpenStreetMap contributors');
   attrib.addTo(map);
@@ -704,8 +731,10 @@ function searchStops(text, done, fail) {
     done(items);
   };
 
-  var byName = function (nm, last) {
-    getJSON('/StopPoint/Search?query=' + encodeURIComponent(nm) + '&modes=bus&maxResults=' + MAX_RESULTS,
+  var variants = searchVariants(name);
+  var byName = function (vi) {
+    if (vi >= variants.length) { done([]); return; }
+    getJSON('/StopPoint/Search?query=' + encodeURIComponent(variants[vi]) + '&modes=bus&maxResults=' + MAX_RESULTS,
       function (data) {
         var ms = data.matches || [], ids = [], seen = {}, basics = [], i;
         for (i = 0; i < ms.length; i++) {
@@ -713,23 +742,22 @@ function searchStops(text, done, fail) {
           seen[ms[i].id] = true; ids.push(encodeURIComponent(ms[i].id));
           basics.push({ id: ms[i].id, name: ms[i].name, label: ms[i].name, lat: ms[i].lat, lon: ms[i].lon, towards: '', distance: 0, lines: [], detail: false });
         }
-        if (!ids.length) {
-          var alt = last ? '' : expandAbbrev(nm);
-          if (alt && alt.toLowerCase() !== nm.toLowerCase()) { byName(alt, true); return; }
-          done([]); return;
-        }
+        if (!ids.length) { byName(vi + 1); return; }
         getJSON('/StopPoint/' + ids.join(','),
           function (res) { var items = searchItems(toArray(res)); finish(items.length ? items : basics); },
           function () { done(basics); });
       },
-      fail);
+      function (msg, status) {
+        if (status === 404) { byName(vi + 1); return; }      // TfL answers 404 when a spelling matches nothing
+        fail(msg);
+      });
   };
 
   if (/^\d{5}$/.test(text)) {          // a five-digit stop code, as printed on the bus stop sign
     getJSON('/StopPoint/Sms/' + text,
-      function (res) { var items = searchItems(toArray(res)); if (items.length) { finish(items); } else { byName(name); } },
-      function () { byName(name); });
-  } else { byName(name); }
+      function (res) { var items = searchItems(toArray(res)); if (items.length) { finish(items); } else { byName(0); } },
+      function () { byName(0); });
+  } else { byName(0); }
 }
 
 function runSearch(v) {
