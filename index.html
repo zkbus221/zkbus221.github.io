@@ -310,6 +310,19 @@ function expandAbbrev(t) {
   return out;
 }
 
+// Other spellings to try when a search finds nothing: "kings cross" -> "king's cross", "hill rd" -> "hill road"
+function searchVariants(t) {
+  var out = [t], seen = {}, cand, i, v;
+  seen[t.toLowerCase()] = true;
+  var apo = t.replace(/\b([A-Za-z]{3,})s\b/g, function (w, a) { return /s$/i.test(a) ? w : a + "'s"; });
+  cand = [apo, t.replace(/['\u2019]/g, ''), expandAbbrev(t), expandAbbrev(apo)];
+  for (i = 0; i < cand.length; i++) {
+    v = cand[i];
+    if (v && !seen[v.toLowerCase()]) { seen[v.toLowerCase()] = true; out.push(v); }
+  }
+  return out;
+}
+
 /* ---------- recents (search history) ---------- */
 
 function loadRecents() {
@@ -802,8 +815,10 @@ function doSearch(text) {
   var name = text, letter = '', lm = text.match(/^(.*\S)\s+stop\s+([a-z0-9]{1,2})$/i);   // "king's cross stop d"
   if (lm) { name = lm[1]; letter = lm[2].toUpperCase(); }
 
-  var byName = function (nm, last) {
-    getJSON('/StopPoint/Search?query=' + encodeURIComponent(nm) + '&modes=bus&maxResults=' + MAX_RESULTS,
+  var variants = searchVariants(name);
+  var byName = function (vi) {
+    if (vi >= variants.length) { finishSearch([], text); return; }
+    getJSON('/StopPoint/Search?query=' + encodeURIComponent(variants[vi]) + '&modes=bus&maxResults=' + MAX_RESULTS,
       function (data) {
         if (my !== searchSeq) { return; }
         var ms = data.matches || [], ids = [], seen = {}, basics = [], i;
@@ -812,11 +827,7 @@ function doSearch(text) {
           seen[ms[i].id] = true; ids.push(encodeURIComponent(ms[i].id));
           basics.push({ id: ms[i].id, name: ms[i].name, label: ms[i].name, lat: ms[i].lat, lon: ms[i].lon, towards: '', distance: 0, lines: [], detail: false });
         }
-        if (!ids.length) {
-          var alt = last ? '' : expandAbbrev(nm);
-          if (alt && alt.toLowerCase() !== nm.toLowerCase()) { byName(alt, true); return; }
-          finishSearch([], text); return;
-        }
+        if (!ids.length) { byName(vi + 1); return; }
         getJSON('/StopPoint/' + ids.join(','),
           function (res) {
             if (my !== searchSeq) { return; }
@@ -831,7 +842,11 @@ function doSearch(text) {
           },
           function () { if (my === searchSeq) { finishSearch(basics, text); } });
       },
-      function (msg) { if (my === searchSeq) { setMsgOnly(msg, true); } });
+      function (msg, status) {
+        if (my !== searchSeq) { return; }
+        if (status === 404) { byName(vi + 1); return; }      // TfL answers 404 when a spelling matches nothing
+        setMsgOnly(msg, true);
+      });
   };
 
   if (/^\d{5}$/.test(text)) {          // a five-digit stop code, as printed on the bus stop sign
@@ -839,10 +854,10 @@ function doSearch(text) {
       function (res) {
         if (my !== searchSeq) { return; }
         var items = searchItems(toArray(res));
-        if (items.length) { searchCache[key] = items; finishSearch(items, text); } else { byName(name); }
+        if (items.length) { searchCache[key] = items; finishSearch(items, text); } else { byName(0); }
       },
-      function () { if (my === searchSeq) { byName(name); } });
-  } else { byName(name); }
+      function () { if (my === searchSeq) { byName(0); } });
+  } else { byName(0); }
 }
 
 function finishSearch(items, text) {
