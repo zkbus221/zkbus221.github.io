@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>ZK’s London Bus Tracker (iOS 5-6)</title>
+<title>ZK’s London Bus Tracker (iOS 5-6 edition)</title>
 <link rel="icon" type="image/png" href="../web-logo.png">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.css">
@@ -48,7 +48,7 @@
   .ntitle { position: absolute; left: 90px; right: 90px; top: 0; height: 44px; line-height: 44px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nback { position: absolute; left: 0; top: 0; height: 44px; }
   .sbody { position: absolute; top: 44px; bottom: 0; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .sbody > * { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .col { max-width: 720px; margin: 0 auto; }
   .spacer { height: 50px; }
 
   /* lists and rows */
@@ -169,7 +169,7 @@
   <div class="tb-row">
     <button id="cancel" class="tbtn tcancel" type="button" style="display:none">Cancel</button>
     <button id="nearBtn" class="tbtn tnear" type="button">Nearby</button>
-    <img class="tlogo" src="../logo.png" width="30" height="30" alt="ZK’s London Bus Tracker">
+    <img class="tlogo" src="../web-logo.png" width="30" height="30" alt="" onerror="this.style.display='none'">
     <div class="sfield">
       <svg class="sglass" viewBox="0 0 24 24" width="14" height="14"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#8e8e93" stroke-width="2.8"/><line x1="15" y1="15" x2="21" y2="21" stroke="#8e8e93" stroke-width="2.8" stroke-linecap="round"/></svg>
       <input id="q" type="text" placeholder="Search bus stops" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
@@ -202,9 +202,9 @@
 /* ===== Settings you can change ===== */
 var API_BASE = 'https://busproxy.zkbus221.workers.dev';   // <-- your Worker address
 var REFRESH_MS = 20000;        // arrivals refresh (milliseconds)
-var NEARBY_RADIUS = 400;       // metres
+var NEARBY_RADIUS = 1000;       // metres
 var TILE_URL = API_BASE + '/tile/{z}/{x}/{y}.png';   // map pictures come through your Worker, because old iOS cannot reach OpenStreetMap directly
-var MAX_DOTS = 20;             // most stop pins drawn on the map
+var MAX_DOTS = 40;             // most stop pins drawn on the map
 var MAX_RESULTS = 40;          // most stops listed for one search
 var START_VIEW = [51.5074, -0.1278];   // used if location is unavailable (central London)
 /* =================================== */
@@ -829,9 +829,11 @@ function showScreen() {
   var body = $('sbody');
   clearNode(body);
   body.scrollTop = 0;
-  if (s.type === 'stop') { buildStopScreen(s, body); }
-  else if (s.type === 'bus') { buildBusScreen(s, body); }
-  else { buildInfoScreen(s, body); }
+  var col = el('div', 'col');          // one centred column, so everything lines up on a wide iPad screen too
+  body.appendChild(col);
+  if (s.type === 'stop') { buildStopScreen(s, col); }
+  else if (s.type === 'bus') { buildBusScreen(s, col); }
+  else { buildInfoScreen(s, col); }
 }
 
 function pushScreen(s) { stack.push(s); showScreen(); }
