@@ -115,18 +115,20 @@
   .seg { display: -webkit-flex; display: flex; margin: 6px 0 4px; padding: 3px; border-radius: 12px; background: rgba(118,118,128,.16); }
   .segb { -webkit-flex: 1; flex: 1; padding: 9px 4px; border: 0; border-radius: 9px; background: transparent; color: inherit; font-size: 14px; font-weight: 600; }
   .segb.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
-  .vcard { margin-top: 12px; padding: 16px; border-radius: 14px; background: #fff; }
-  .vopname { font-size: 22px; line-height: 27px; font-weight: 700; }
+  .vcard { position: relative; margin-top: 6px; padding: 18px 16px 16px; border-radius: 14px; background: #fff; }
+  .vopname { padding-right: 40px; font-size: 26px; line-height: 31px; font-weight: 700; }
   .vids { margin-top: 8px; }
-  .vids span { display: inline-block; margin: 0 8px 0 0; font-size: 16px; padding: 3px 10px; }
-  .vmodel { margin-top: 12px; font-size: 16px; line-height: 21px; font-weight: 600; }
-  .vfuel { margin-top: 2px; font-size: 15px; color: #6e6e73; }
-  .vgap { height: 16px; }
-  .vroute { font-size: 17px; line-height: 22px; font-weight: 600; }
-  .vlate { margin-top: 4px; font-size: 17px; font-weight: 700; color: #6e6e73; }
-  .vlate.early, .vlate.ontime { color: #1f9d55; }
-  .vlate.late { color: #d9480f; }
-  .vnote { margin-top: 3px; font-size: 12px; color: #6e6e73; }
+  .vids span { display: inline-block; margin: 0 8px 0 0; font-size: 17px; padding: 3px 10px; }
+  .vx { position: absolute; right: 12px; top: 14px; margin: 0; }
+  .vdiv { height: 3px; margin: 16px 0 4px; border-radius: 2px; background: #1c1c1e; }
+  .vkv { margin-top: 12px; }
+  .vk { font-size: 16px; line-height: 20px; font-weight: 700; }
+  .vv { margin-top: 1px; font-size: 16px; line-height: 21px; }
+  .vv.early, .vv.ontime { color: #1f9d55; font-weight: 700; }
+  .vv.late { color: #d9480f; font-weight: 700; }
+  .vrbadge { display: inline-block; margin-right: 8px; padding: 1px 10px; border-radius: 8px; background: #dc241f; color: #fff; font-size: 17px; font-weight: 700; }
+  .vnote { margin-top: 4px; font-size: 12px; color: #6e6e73; }
+  .vcard .plink { margin-top: 16px; }
   .vphoto { margin-top: 14px; }
   .vimg { display: block; width: 100%; border-radius: 14px; background: rgba(118,118,128,.2); }
   .vcredit { margin: 6px 2px 0; font-size: 12px; color: #6e6e73; }
@@ -185,12 +187,12 @@
   .dark .plist { border-top-color: rgba(84,84,88,.6); }
   .dark .prow { border-bottom-color: rgba(84,84,88,.45); }
   .dark .pflag { box-shadow: inset 0 0 0 3px #2c2c2e, inset 0 0 0 5px #e1251b; }
-  .dark .pnote, .dark .snote, .dark .clock, .dark .vfuel, .dark .vnote, .dark .vcredit { color: #98989f; }
+  .dark .pnote, .dark .snote, .dark .clock, .dark .vnote, .dark .vcredit { color: #98989f; }
   .dark .vcard { background: #2c2c2e; }
+  .dark .vdiv { background: #e5e5ea; }
   .dark .segb.on { background: #636366; }
-  .dark .vlate { color: #98989f; }
-  .dark .vlate.early, .dark .vlate.ontime { color: #34c759; }
-  .dark .vlate.late { color: #ff9f0a; }
+  .dark .vv.early, .dark .vv.ontime { color: #34c759; }
+  .dark .vv.late { color: #ff9f0a; }
   .dark .pnote.err { color: #ff6961; }
 </style>
 </head>
@@ -538,19 +540,56 @@ function lookupPhoto(reg, cb) {
     function () { cb({ found: false }); });
 }
 
-// The "Vehicle information" card: operator, fleet number, registration, model, fuel, route, lateness, photo
+// The bus's real next stop = its soonest prediction (the page you came from may show a later stop)
+function fetchNextStop(a, cb) {
+  getJSON('/Vehicle/' + encodeURIComponent(a.vehicleId) + '/Arrivals',
+    function (data) {
+      var arr = toArray(data), best = null, i;
+      for (i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].timeToStation !== undefined && (!best || arr[i].timeToStation < best.timeToStation)) { best = arr[i]; }
+      }
+      cb(best);
+    },
+    function () { cb(null); });
+}
+
+// a label with its value under it, hidden until there is something to show
+function vkv(label, alwaysShow) {
+  var box = el('div', 'vkv'), val = el('div', 'vv', '');
+  box.appendChild(el('div', 'vk', label)); box.appendChild(val);
+  if (!alwaysShow) { box.style.display = 'none'; }
+  return { box: box, val: val };
+}
+function setVkv(kv, text) {
+  if (text) { kv.val.textContent = text; kv.box.style.display = 'block'; }
+}
+
+// The "Vehicle information" card: operator, fleet number, registration, garage, type, fuel, livery,
+// current route, next stop, lateness, then a button and (main edition only) a photo
 function buildVehicleCard(a, opts, onTrack) {
   var reg = regOf(a.vehicleId), wrap = el('div', 'vwrap'), card = el('div', 'vcard');
   var op = el('div', 'vopname', '\u2026');
   var ids = el('div', 'vids'), fleetEl = el('span', 'vfleet');
   ids.appendChild(fleetEl);
   if (reg) { ids.appendChild(el('span', 'plate', prettyReg(reg))); }
-  var model = el('div', 'vmodel', ''), fuel = el('div', 'vfuel', '');
-  var route = el('div', 'vroute', a.lineName + ' to ' + (a.destinationName || a.towards || ''));
-  var late = el('div', 'vlate', 'Working out how early or late\u2026'), lnote = el('div', 'vnote', '');
+  card.appendChild(op); card.appendChild(ids);
+  if (opts.onClose) {
+    var x = el('button', 'xbtn vx', '\u00D7'); x.type = 'button'; x.setAttribute('aria-label', 'Back'); x.onclick = opts.onClose;
+    card.appendChild(x);
+  }
+  card.appendChild(el('div', 'vdiv'));
+  var garage = vkv('Garage'), type = vkv('Type'), fuel = vkv('Fuel'), livery = vkv('Livery');
+  card.appendChild(garage.box); card.appendChild(type.box); card.appendChild(fuel.box); card.appendChild(livery.box);
+  card.appendChild(el('div', 'vdiv'));
+
+  var route = vkv('Current route', true);
+  route.val.appendChild(el('span', 'vrbadge', a.lineName));
+  route.val.appendChild(document.createTextNode(a.destinationName || a.towards || ''));
+  var next = vkv('Next stop', true), late = vkv('Lateness', true), lnote = el('div', 'vnote', '');
+  next.val.textContent = '\u2026'; late.val.textContent = '\u2026';
+  card.appendChild(route.box); card.appendChild(next.box); card.appendChild(late.box); card.appendChild(lnote);
   var track = el('button', 'plink', 'Track this bus'); track.type = 'button'; track.onclick = onTrack;
-  card.appendChild(op); card.appendChild(ids); card.appendChild(model); card.appendChild(fuel);
-  card.appendChild(el('div', 'vgap')); card.appendChild(route); card.appendChild(late); card.appendChild(lnote); card.appendChild(track);
+  card.appendChild(track);
   wrap.appendChild(card);
 
   if (reg) {
@@ -558,18 +597,27 @@ function buildVehicleCard(a, opts, onTrack) {
       if (rec.ok) {
         op.textContent = rec.op || 'Operator not known';
         fleetEl.textContent = rec.fleet;
-        model.textContent = rec.model || '';
-        fuel.textContent = rec.fuel ? 'Fuel type: ' + rec.fuel.charAt(0).toUpperCase() + rec.fuel.slice(1) : '';
+        setVkv(garage, rec.garage); setVkv(type, rec.model);
+        setVkv(fuel, rec.fuel ? rec.fuel.charAt(0).toUpperCase() + rec.fuel.slice(1) : ''); setVkv(livery, rec.livery);
       } else { op.textContent = 'Vehicle details not found'; }
     });
   } else { op.textContent = 'Vehicle details not available'; }
 
-  estimateLateness(a, function (m) {
-    if (m === null) { late.textContent = 'Early or late: not available for this bus'; lnote.textContent = 'TfL does not publish this; it can only be worked out on routes with an exact timetable.'; return; }
-    if (m === 0) { late.textContent = 'On time'; late.className = 'vlate ontime'; }
-    else if (m < 0) { late.textContent = (-m) + ' min early'; late.className = 'vlate early'; }
-    else { late.textContent = m + ' min late'; late.className = 'vlate late'; }
-    lnote.textContent = 'Estimated from the timetable.';
+  fetchNextStop(a, function (pred) {
+    var p = pred || a;
+    if (!p.lineName) { p.lineName = a.lineName; }
+    next.val.textContent = stopLabelFromArrival(p);
+    estimateLateness(p, function (m) {
+      if (m === null) {
+        late.val.textContent = 'Not available'; late.val.className = 'vv';
+        lnote.textContent = 'TfL does not publish this. It can only be worked out on routes with an exact timetable.';
+        return;
+      }
+      if (m === 0) { late.val.textContent = 'On time'; late.val.className = 'vv ontime'; }
+      else if (m < 0) { late.val.textContent = (-m) + ' min early'; late.val.className = 'vv early'; }
+      else { late.val.textContent = m + ' min late'; late.val.className = 'vv late'; }
+      lnote.textContent = 'Estimated from the timetable.';
+    });
   });
 
   if (opts.photo && reg) {
@@ -1189,7 +1237,7 @@ $('cancel').onclick = function () {
 
 function loadVeh() {
   try {
-    var v = JSON.parse(localStorage.getItem('busVeh2') || '{}');
+    var v = JSON.parse(localStorage.getItem('busVeh3') || '{}');
     return (v && typeof v === 'object') ? v : {};
   } catch (e) { return {}; }
 }
@@ -1198,7 +1246,7 @@ function saveVeh() {
     var n = 0, k;
     for (k in vehMem) { if (vehMem.hasOwnProperty(k)) { n++; } }
     if (n > 400) { vehMem = {}; }
-    localStorage.setItem('busVeh2', JSON.stringify(vehMem));
+    localStorage.setItem('busVeh3', JSON.stringify(vehMem));
   } catch (e) {}
 }
 var vehMem = loadVeh();       // saved on this device so each bus is only looked up once
@@ -1229,11 +1277,11 @@ function pumpVeh() {
       vehBusy++;
       getJSON('/vehicle/' + encodeURIComponent(reg),
         function (d) {
-          var rec = { ok: !!d.found, op: d.operator || '', fleet: d.fleet || '', model: d.model || d.type || '', fuel: d.fuel || '', t: new Date().getTime() };
+          var rec = { ok: !!d.found, op: d.operator || '', fleet: d.fleet || '', model: d.model || d.type || '', fuel: d.fuel || '', garage: d.garage || '', livery: d.livery || '', t: new Date().getTime() };
           if (!d.error) { vehMem[reg] = rec; saveVeh(); }
           finishVeh(reg, rec);
         },
-        function () { finishVeh(reg, { ok: false, op: '', fleet: '', model: '', fuel: '', t: 0 }); });
+        function () { finishVeh(reg, { ok: false, op: '', fleet: '', model: '', fuel: '', garage: '', livery: '', t: 0 }); });
     })(vehQueue.shift());
   }
 }
@@ -1684,19 +1732,22 @@ function renderBusScreen() {
   }
   content.appendChild(seg);
 
-  var th = el('div', 'thead'), tt = el('div', 'tt');
-  tt.appendChild(el('h1', 'tname', a.lineName + ' to ' + (a.destinationName || a.towards || '')));
-  var reg = regOf(a.vehicleId);
-  if (reg && busTab === 'stops') {
-    var veh = el('div', 'veh'), fleetEl = el('span', 'vfleet');
-    veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
-    tt.appendChild(veh);
-    fillVeh(reg, fleetEl);
-  }
-  var x = el('button', 'xbtn', '\u00D7'); x.type = 'button'; x.setAttribute('aria-label', 'Back');
-  x.onclick = function () { goBack(); };
-  th.appendChild(tt); th.appendChild(x); content.appendChild(th);
+  if (busTab === 'stops') {
+    var th = el('div', 'thead'), tt = el('div', 'tt');
+    tt.appendChild(el('h1', 'tname', a.lineName + ' to ' + (a.destinationName || a.towards || '')));
+    var reg = regOf(a.vehicleId);
+    if (reg && busTab === 'stops') {
+      var veh = el('div', 'veh'), fleetEl = el('span', 'vfleet');
+      veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
+      tt.appendChild(veh);
+      fillVeh(reg, fleetEl);
+    }
+    var x = el('button', 'xbtn', '\u00D7'); x.type = 'button'; x.setAttribute('aria-label', 'Back');
+    x.onclick = function () { goBack(); };
+    th.appendChild(tt); th.appendChild(x); content.appendChild(th);
 
+
+  }
   ctx.body = el('div', 'busbody');
   content.appendChild(ctx.body);
   endContent();
@@ -1708,7 +1759,7 @@ function renderBusScreen() {
     var upd = el('div', 'upd'); upd.id = 'busUpd'; ctx.body.appendChild(upd);
     if (ctx.stops) { renderBus(ctx.stops, ctx); }
   } else {
-    ctx.body.appendChild(buildVehicleCard(a, { photo: true }, function () { setBusTab('stops'); }));
+    ctx.body.appendChild(buildVehicleCard(a, { photo: true, onClose: function () { goBack(); } }, function () { setBusTab('stops'); }));
   }
 }
 
