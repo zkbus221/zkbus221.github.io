@@ -108,6 +108,13 @@
   .vnote { margin-top: 4px; font-size: 12px; }
   .vcard .plink { display: block; width: 100%; margin-top: 12px; padding: 11px 0; font-size: 15px; font-weight: bold; text-align: center; color: #fff; }
 
+  .veh.vbig .vfleet, .veh.vbig .plate { padding: 3px 10px; font-size: 16px; }
+  .nk { margin-top: 6px; font-size: 15px; line-height: 19px; font-weight: bold; }
+  .nv { font-size: 16px; line-height: 21px; }
+  .etalab { font-size: 13px; line-height: 16px; text-align: right; }
+  .etatime { font-size: 26px; line-height: 30px; font-weight: bold; text-align: right; }
+  .row.arr.go.busrow { padding-right: 116px; }
+
   /* ===== iOS 5 / 6 Maps look: blue-grey bars, glossy buttons, linen tables, dark callouts ===== */
   body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #000; background: #dedbd3; }
   .topbar, .navbar { background: #6d84a8; background: -webkit-linear-gradient(top, #a9b9d2 0%, #7f94b4 49%, #6c83a7 50%, #5f78a0 100%); background: linear-gradient(to bottom, #a9b9d2 0%, #7f94b4 49%, #6c83a7 50%, #5f78a0 100%);
@@ -190,6 +197,9 @@
   .vv.late { color: #c4430b; }
   .vrbadge { border: 1px solid #8a1410; border-radius: 5px; background: #c2201b; background: -webkit-linear-gradient(top, #ee5650, #b81610 55%, #a8120d); background: linear-gradient(to bottom, #ee5650, #b81610 55%, #a8120d); text-shadow: 0 -1px 0 rgba(0,0,0,.4); }
   .vnote { color: #666; }
+
+  .etalab { color: #666; }
+  .etatime { color: #385487; }
 
 </style>
 </head>
@@ -676,10 +686,10 @@ function buildBusStopRows(ul, data, hereId, onPick) {
   }
 }
 
-// Buses on a route, grouped by where they are heading
+// The stops of a route in order, so we can count how many stops each bus has left
 
 function routeBusGroups(buses, opts, onPick) {
-  var wrap = el('div', 'rgroups'), groups = {}, order = [], i, a, d, g, n, ul, li, mid, col, mins, when, reg, veh, fleetEl, vi = 0;
+  var wrap = el('div', 'rgroups'), groups = {}, order = [], i, a, d, g, n, ul, li, mid, col, when, reg, veh, fleetEl, vi = 0;
   for (i = 0; i < buses.length && i < 60; i++) {
     a = buses[i]; d = a.destinationName || a.towards || 'Unknown destination';
     if (!groups[d]) { groups[d] = []; order.push(d); }
@@ -689,25 +699,33 @@ function routeBusGroups(buses, opts, onPick) {
   var now = new Date().getTime();
   for (g = 0; g < order.length; g++) {
     d = order[g];
+    groups[d].sort(function (x, y) {
+      var lx = stopsLeft(x, opts.seq), ly = stopsLeft(y, opts.seq);
+      if (lx === null && ly === null) { return x.timeToStation - y.timeToStation; }
+      if (lx === null) { return 1; }
+      if (ly === null) { return -1; }
+      if (lx !== ly) { return ly - lx; }
+      return x.timeToStation - y.timeToStation;
+    });
     wrap.appendChild(el('div', opts.titleClass, 'To ' + d + ' (' + groups[d].length + (groups[d].length === 1 ? ' bus' : ' buses') + ')'));
     ul = el('ul', opts.listClass);
     for (n = 0; n < groups[d].length; n++) {
-      a = groups[d][n]; mins = Math.floor(a.timeToStation / 60); when = new Date(now + a.timeToStation * 1000);
-      li = el('li', 'row arr nob go');
+      a = groups[d][n]; when = new Date(now + a.timeToStation * 1000);
+      li = el('li', 'row arr nob go busrow');
       mid = el('div', 'rbody');
-      mid.appendChild(el('div', 'rt', stopLabelFromArrival(a)));
-      mid.appendChild(el('div', 'rs', 'Next stop'));
       reg = regOf(a.vehicleId);
       if (reg) {
-        veh = el('div', 'veh'); fleetEl = el('span', 'vfleet');
+        veh = el('div', 'veh vbig'); fleetEl = el('span', 'vfleet');
         veh.appendChild(fleetEl); veh.appendChild(el('span', 'plate', prettyReg(reg)));
         mid.appendChild(veh);
         if (vi < 12) { fillVeh(reg, fleetEl); vi++; }
       }
+      mid.appendChild(el('div', 'nk', 'Next stop'));
+      mid.appendChild(el('div', 'nv', stopLabelFromArrival(a)));
       li.appendChild(mid);
       col = el('div', 'mcol');
-      col.appendChild(el('div', 'mins', mins < 1 ? 'Due' : mins + ' min'));
-      col.appendChild(el('div', 'clock', two(when.getHours()) + ':' + two(when.getMinutes())));
+      col.appendChild(el('div', 'etalab', 'Stop ETA'));
+      col.appendChild(el('div', 'etatime', two(when.getHours()) + ':' + two(when.getMinutes())));
       li.appendChild(col);
       li.onclick = (function (bus) { return function () { onPick(bus); }; })(a);
       ul.appendChild(li);
@@ -769,6 +787,42 @@ function lookupPhoto(reg, cb) {
 }
 
 // The bus's real next stop = its soonest prediction (the page you came from may show a later stop)
+
+var seqMem = {};
+
+function fetchSequence(lineId, cb) {      // cb(seq or null); seq = { inbound: [{ end, stops: [ids] }], outbound: [...] }
+  var id = lineId.toLowerCase();
+  if (seqMem[id]) { cb(seqMem[id]); return; }
+  getJSON('/seq/' + encodeURIComponent(id),
+    function (d) { if (d && ((d.inbound && d.inbound.length) || (d.outbound && d.outbound.length))) { seqMem[id] = d; cb(d); } else { cb(null); } },
+    function () { cb(null); });
+}
+
+function normStop(t) {
+  return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\b(bus|station|stn|garage|stand|stop)\b/g, '').replace(/\s+/g, ' ').replace(/^ | $/g, '');
+}
+
+function sameStop(a, b) {
+  a = normStop(a); b = normStop(b);
+  return !!a && !!b && (a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1);
+}
+
+// How many stops this bus still has to call at before the end of its journey (null if we cannot tell)
+
+function stopsLeft(bus, seq) {
+  var branches = seq && seq[bus.direction], i, idx, left, best = null;
+  if (!branches || !bus.naptanId) { return null; }
+  for (i = 0; i < branches.length; i++) {
+    idx = branches[i].stops.indexOf(bus.naptanId);
+    if (idx < 0) { continue; }
+    left = branches[i].stops.length - idx;
+    if (sameStop(branches[i].end, bus.destinationName)) { return left; }   // the branch that ends where this bus is heading
+    if (best === null) { best = left; }
+  }
+  return best;
+}
+
+// Buses on a route, grouped by where they are heading. Within a group the bus with the MOST stops left is first.
 
 function fetchNextStop(a, cb) {
   getJSON('/Vehicle/' + encodeURIComponent(a.vehicleId) + '/Arrivals',
@@ -1429,7 +1483,15 @@ function buildRouteScreen(s, body) {
 function loadRouteBuses(s) {
   if (curScreen() !== s || document.hidden) { return; }
   fetchLineBuses(s.route.id,
-    function (buses) { if (curScreen() === s) { renderRouteBuses(s, buses); } },
+    function (buses) {
+      if (curScreen() !== s) { return; }
+      s.buses = buses;
+      renderRouteBuses(s, buses);
+      if (!s.seqAsked) {                       // learn the order of the stops once, then draw the list sorted
+        s.seqAsked = true;
+        fetchSequence(s.route.id, function (seq) { if (seq && curScreen() === s && s.buses) { renderRouteBuses(s, s.buses); } });
+      }
+    },
     function (msg) { if (curScreen() === s) { s.note.style.display = 'block'; s.note.textContent = msg; s.note.className = 'note err'; } });
 }
 
@@ -1439,10 +1501,10 @@ function renderRouteBuses(s, buses) {
     s.note.style.display = 'block'; s.note.className = 'note'; s.note.textContent = 'No buses are being tracked on this route right now.';
   } else {
     s.note.style.display = 'none';
-    s.box.appendChild(routeBusGroups(buses, { listClass: 'tbl', titleClass: 'sec2' }, function (bus) { pushScreen({ type: 'bus', arr: bus, item: null, from: 'route' }); }));
+    s.box.appendChild(routeBusGroups(buses, { listClass: 'tbl', titleClass: 'sec2', seq: seqMem[s.route.id.toLowerCase()] || null }, function (bus) { pushScreen({ type: 'bus', arr: bus, item: null, from: 'route' }); }));
   }
   var t = new Date();
-  s.upd.textContent = 'Updated ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ':' + two(t.getSeconds()) + '. Refreshes every ' + (REFRESH_MS / 1000) + ' seconds.';
+  s.upd.textContent = 'Updated ' + two(t.getHours()) + ':' + two(t.getMinutes()) + ':' + two(t.getSeconds()) + '. Refreshes every ' + (REFRESH_MS / 1000) + ' seconds. Buses with the most stops left to go are first.';
 }
 
 /* ----- one bus: "Stop/time predictions" and "Vehicle information" ----- */
