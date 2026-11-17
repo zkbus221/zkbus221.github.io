@@ -12,7 +12,7 @@ Just press [this](https://zkbus221.github.io/)
 Recommended for iOS 7-13:
 Just press [this](https://zkbus221.github.io/legacy/) 
 
-Recommended for iOS <=6:
+Recommended for iOS 5-6:
 Just press [this](https://zkbus221.github.io/ios6/) 
 
 ## Source used:
