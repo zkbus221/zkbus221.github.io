@@ -1,6 +1,6 @@
 ### Latest Update: v1.0 [BETA]
-Now this thing's development is kinda finished i think, so feel free to use it now
-Advertisement video link is [this](https://www.youtube.com/watch?v=f32my4EwFoc)
+Now this thing's development is kinda finished i think, so feel free to use it now!
+and the advertisement video link is [this](https://www.youtube.com/watch?v=f32my4EwFoc)
 
 # ZK's bus tracker
 A TfL bus tracker made in the support of Claude (AI). 
